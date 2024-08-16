@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "qpc"
+version = "0.1"
+description = "Qick Pulse Compiler (QPC) is a high-level python interface to generate pulse programs for the Quantum Instrumentation Control Kit."
+authors = [
+	"Jacob Feder <jfed@uchicago.edu>",
+]
+maintainers = [
+	"Jacob Feder <jfed@uchicago.edu>",
+]
+readme = "README.md"
+packages = [{include = "qpc", from = "src"}]
+
+[tool.poetry.dependencies]
+# for now we must use python 3.10 because pyro4 doesn't support 3.11
+python = "~3.10"
+qick = { git = "https://github.com/awsch/qick-spin.git"}
+pyro4 = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
