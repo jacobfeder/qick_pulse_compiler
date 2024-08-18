@@ -1,6 +1,7 @@
 """TODO"""
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from inspect import isclass
 from numbers import Number
 from typing import Optional, Union, Type
 
@@ -64,22 +65,33 @@ class QickType(QickObject, ABC):
     """Fundamental types used in the QICK firmware."""
 
     @abstractmethod
-    def holds_type(self):
-        """Returns the type of this class."""
+    def qick_type(self):
+        """Returns the type of this object."""
         pass
 
-    def compatible_type(self, other: Type) -> bool:
-        """Return True if other is compatible with this type."""
-        return (self.holds_type() == other)
+    @abstractmethod
+    def typecast(self, other: Union[QickType, Type]):
+        """Return self converted into the qick type of other."""
+        pass
 
-    def __add__(self, other: QickType) -> QickType:
-        if isinstance(self, QickVarType) or isinstance(other, QickVarType):
-            return QickExpression(left=self, right=other, operator='+')
+    def qick_type_class(self, other: Union[QickType, Type]) -> Type:
+        """Similar to qick_type except it may also accept a class."""
+        if isclass(other) and issubclass(other, QickType):
+            return other
+        elif isinstance(other, QickType):
+            return other.qick_type()
         else:
-            return NotImplemented
+            raise TypeError(f'other [{other}] must be an instance of QickType '
+                'or a subclass of QickType.')
 
-    def __radd__(self, other) -> QickType:
-        return self.__add__(other)
+    def compatible_type(self, other: Union[QickType, Type]) -> bool:
+        """Return true if self and other have compatible QICK type.
+
+        Args:
+            other: a QickType object or class.
+
+        """
+        return self.qick_type() == self.qick_type_class(other)
 
 class QickConstType(QickType):
     """Base class for types that have a constant value."""
@@ -94,33 +106,39 @@ class QickConstType(QickType):
             raise TypeError('val must be a number.')
         self.val = val
 
-    def holds_type(self):
+    def qick_type(self) -> QickConstType:
         return type(self)
 
-    def typecast(self, other: Type):
-        """Return self converted into other type."""
+    def typecast(self, other: Union[QickType, Type]) -> QickConstType:
+        """Return a copy of self converted into the qick type of other."""
         if self.compatible_type(other):
-            return other(val=self.val)
+            return self.qick_type_class(other)(val=self.val)
         else:
             raise TypeError(f'Tried to cast [{self}] to type of [{other}] '
                 'but their types are incompatible.')
 
-    def __add__(self, other: QickType) -> QickType:
+    def __add__(self, other) -> QickConstType:
         if isinstance(other, QickConstType):
-            if not self.compatible_type(type(other)):
-                raise TypeError(f'Tried to add [{self}] and [{other}] '
+            if not self.compatible_type(other):
+                raise TypeError(f'Tried to add [{self}] to [{other}] '
                     'but their types are incompatible.')
-            if self.context.code != other.context.code:
+            if self.context != other.context:
                 raise RuntimeError(f'Tried to add [{self}] and [{other}] '
-                    'but they are associated with different code blocks.')
-            return type(self)(val=self.val + other.val)
+                    'but they are associated with different contexts.')
+            return self.qick_type()(val=self.val + other.val)
+        elif isinstance(other, Number):
+            return self.qick_type()(val=self.val + other)
         else:
-            return super().__add__(other)
+            return NotImplemented
+
+    def __radd__(self, other) -> QickConstType:
+        return self.__add__(other)
 
 class QickTime(QickConstType):
     """Represents a time."""
-    def compatible_type(self, other: Type):
-        return issubclass(other, QickTime)
+    def compatible_type(self, other: Union[QickType, Type]) -> bool:
+        return (issubclass(self.qick_type(), QickTime) and \
+            issubclass(self.qick_type_class(other), QickTime))
 
 class QickEpoch(QickTime):
     """Represents the time at which a pulse will be played."""
@@ -128,7 +146,10 @@ class QickEpoch(QickTime):
 
 class QickLength(QickTime):
     """Represents the length of a pulse."""
-    pass
+    def __init__(self, val: Number, ch):
+        super().__init__(val=val)
+        # TODO need to integrate type checking for correct channel number
+        # when adding regs
 
 class QickFreq(QickConstType):
     """Represents a frequency."""
@@ -136,8 +157,29 @@ class QickFreq(QickConstType):
 
 class QickVarType(QickType):
     """Base class for variable types."""
-    def holds_type(self) -> QickConstType:
+    def __init__(self):
+        super().__init__()
+        self.held_type: Optional[QickConstType] = None
+
+    def qick_type(self) -> Optional[QickConstType]:
         return self.held_type
+
+    def __add__(self, other, swap: bool = False) -> QickExpression:
+        if not self.compatible_type(other):
+            raise TypeError(f'Tried adding [{self}] and [{other}] but their '
+                'types are not compatible.')
+        if self.context != other.context:
+            raise RuntimeError(f'Tried to add [{self}] and [{other}] '
+                'but they are associated with different contexts.')
+
+        # swap the orientation if called from __radd__
+        if swap:
+            return QickExpression(left=other, operator='+', right=self)
+        else:
+            return QickExpression(left=self, operator='+', right=other)
+
+    def __radd__(self, other) -> QickExpression:
+        return self.__add__(other, swap=True)
 
 class QickReg(QickVarType):
     """Represents a register in the tproc."""
@@ -150,41 +192,116 @@ class QickReg(QickVarType):
         """
         super().__init__()
         self.reg = reg
-        # TODO
-        self.held_type: Optional[QickConstType] = None
+
+    def typecast(self, other: Union[QickType, Type]) -> QickReg:
+        """Return self if it already has the type of other. Otherwise, QickReg
+        cannot be typecast."""
+        if self.qick_type() == self.qick_type_class(other):
+            return self
+        else:
+            raise TypeError(f'QickReg cannot be typecast.')
+
+    def assign(self, value: Union[int, QickType]):
+        """TODO
+
+        Args:
+            vale: TODO
+
+        """
+        if self.held_type is None:
+            if isinstance(value, QickType):
+                self.held_type = value.qick_type()
+            elif isinstance(value, int):
+                self.held_type = None
+            else:
+                raise TypeError(f'value [{value}] must be a QickType or int.')
+        else:
+            raise ValueError(f'Cannot reassign reg [{self}].')
+
+        if isinstance(value, int) or isinstance(value, QickConstType):
+            asm = f'REG_WR {self} imm #{value}\n'
+        elif isinstance(value, QickReg):
+            asm = f'REG_WR {self} op -op({value})\n'
+        elif isinstance(value, QickExpression):
+            pre_asm, exp_asm = value.render_asm()
+            asm = pre_asm
+            asm += f'REG_WR {self} op -op({exp_asm})\n'
+
+        self.context.code.asm += asm
 
 class QickExpression(QickVarType):
-    """Represents a mathematical expression containing a combination of
-    QickConstType and QickReg."""
+    """Represents a mathematical equation containing QickType."""
     def __init__(
             self,
             left: QickType,
-            right: QickType,
             operator: str,
+            right: QickType,
         ):
         """
         Args:
-            left: TODO
-            right: 
-            operator: 
+            left: Left operand.
+            operator: Operator: '+', '-', '*'.
+            right: Right operand.
 
         """
         super().__init__()
 
-        if left.holds_type() is None:
-            raise RuntimeError(f'[{left}] is undergoing an operation '
-                'but it has not yet been assigned.')
-        if right.holds_type() is None:
-            raise RuntimeError(f'[{right}] is undergoing an operation '
-                'but it has not yet been assigned.')
-        if left.holds_type() != right.holds_type():
-            raise TypeError('Tried to create an expression with incompatible '
-                f'types [{left}] and [{right}].')
+        # make sure left and right have the same qick type
+        try:
+            right = right.typecast(left)
+        except TypeError:
+            try:
+                left = left.typecast(right)
+            except TypeError:
+                raise TypeError(f'Could not create new QickExpression because '
+                    f'left [{left}] and right [{right}] could not be typecast.')
 
         self.left = left
         self.right = right
         self.operator = operator
-        self.held_type: QickConstType = left.holds_type()
+        self.held_type: QickConstType = left.qick_type()
+
+    def typecast(self, other: Union[QickType, Type]) -> QickExpression:
+        """Return self converted into the type of other."""
+        try:
+            left = self.left.typecast(other)
+            right = self.right.typecast(other)
+        except TypeError as err:
+            raise TypeError(f'QickExpression [{self}] failed to typecast '
+                f'into type [{other}].') from err
+        return QickExpression(left=left, operator=self.operator, right=right)
+
+    def render_asm(self) -> Tuple[str, str]:
+        """Create assembly code that evaluates the expression."""
+        # series of REG_WR instructions that go before this expression
+        # to prepare the operands
+        pre_asm = ''
+        # assembly code of this expression, e.g. 'r1 + 5' or 'r1 + r2'
+        exp_asm = ''
+
+        if isinstance(self.left, QickExpression):
+            left_pre, left_exp = left.render_asm()
+            pre_asm += left_pre
+            left_reg = QickReg()
+            pre_asm += f'REG_WR {left_reg} op -op({left_exp})\n'
+        elif isinstance(self.left, QickReg):
+            exp_asm += f'{self.left} '
+        else:
+            exp_asm += f'#{self.left} '
+
+        exp_asm += self.operator
+
+        if isinstance(self.right, QickExpression):
+            right_pre, right_exp = right.render_asm()
+            pre_asm += right_pre
+            right_reg = QickReg()
+            pre_asm += f'REG_WR {right_reg} op -op({right_exp})\n'
+        elif isinstance(self.right, QickReg):
+            exp_asm += f' {self.right}'
+        else:
+            exp_asm += f' #{self.right}'
+
+        return pre_asm, exp_asm
 
 # class QickSweptReg(QickReg):
 #     """Represents the arguments to a swept variable."""
@@ -310,31 +427,6 @@ class QickCode:
     #     offset = QickTime(time=offset, relative=False, code=self)
 
     #     return port, offset
-
-    def assign_reg(
-            self,
-            reg: QickReg,
-            value: Union[int, QickFreq, QickTime, QickReg, QickExpression]
-        ):
-        """TODO
-
-        Args:
-            reg: TODO
-
-        """
-        asm = ''
-        if isinstance(value, QickFreq) or \
-            isinstance(value, QickTime):
-            asm += f'REG_WR {reg.reg} imm #{value}\n'
-        elif isinstance(value, QickReg):
-            asm += f'REG_WR w_freq op -op({value})\n'
-
-
-
-            elif isinstance(freq, QickFreq):
-                asm += f"""REG_WR w_freq imm #{freq}\n"""
-            elif isinstance(freq, Number):
-                asm += f"""REG_WR w_freq imm #{QickFreq(freq=freq, code=self)}\n"""
 
     def merge_kvp(self, kvp: Dict):
         """Merge the given key-value pairs into this code block's key-value

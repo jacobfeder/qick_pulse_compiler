@@ -53,7 +53,6 @@ class FakeSoC:
 class QickPulseCompiler:
     """Runs a QICK program for tprocv2."""
     def __init__(self,
-        code: QickCode,
         iomap: Optional[QickIOMap] = None,
         ns_addr: str = 'localhost',
         ns_port: int = 8000,
@@ -64,17 +63,14 @@ class QickPulseCompiler:
         ):
         """
         Args:
-            code: TODO.
-            iomap: TODO
+            iomap: TODO.
             ns_addr: Pyro nameserver address for the RFSoC.
             ns_port: Pyro nameserver port for the RFSoC.
             soc_proxy: Pyro SoC object name.
-            print_prog: Whether to print out the program assembly before running.
-            fake_soc: TODO
+            fake_soc: If True, simulate the SoC connection for testing purposes.
             soc_kwargs: SoC object keyword args.
 
         """
-        self.code = code
         self.iomap = iomap
         self.ns_addr = ns_addr
         self.ns_port = ns_port
@@ -82,11 +78,15 @@ class QickPulseCompiler:
         self.print_prog = print_prog
         self.fake_soc = fake_soc
         self.soc_kwargs = soc_kwargs
-        if not self.fake_soc:
+
+        if self.fake_soc:
+            self.soc = FakeSoC()
+        else:
             if local_soc:
-                if 'bitfile' not in soc_kwargs:
-                    soc_kwargs['bitfile'] = str(Path(qick.__file__).parent / 'qick_4x2.bit')
-                self.soc = QickSoc(**soc_kwargs)
+                if 'bitfile' not in self.soc_kwargs:
+                    raise ValueError('If run locally on the RFSoC, '
+                        'bitfile must be defined.')
+                self.soc = QickSoc(**self.soc_kwargs)
             else:
                 # connect to the pyro name server
                 self.name_server = Pyro4.locateNS(host=ns_addr, port=ns_port)
@@ -95,30 +95,12 @@ class QickPulseCompiler:
 
             self.soccfg = QickConfig(self.soc.get_cfg())
             super().__init__(self.soccfg)
-        else:
-            self.soc = FakeSoC()
 
     def __enter__(self):
-        self.run()
         return self
 
     def __exit__(self, *args):
         self.stop()
-
-    def compile(self, code: QickCode):
-        """TODO.
-
-        Args:
-            code: The code block to compile.
-
-        """
-        pass
-
-    def run(self):
-        self.load(self.code)
-        # start the program
-        self.soc.tproc.start()
-        _logger.debug('running rfsoc prog...')
 
     def port(io: [QickIODevice, QickIO]) -> Union[int, Tuple]:
         """Return the port info associated with the given object.
@@ -149,6 +131,20 @@ class QickPulseCompiler:
 
         return port_info
 
+    def compile(self, code: QickCode):
+        """TODO.
+
+        Args:
+            code: The code block to compile.
+
+        """
+        return self.code.asm
+
+    def run(self, code: QickCode):
+        # start the program
+        self.soc.tproc.start()
+        _logger.debug('running rfsoc prog...')
+
     def load(self, code: QickCode):
         """Load the program and configure the tproc.
 
@@ -156,17 +152,16 @@ class QickPulseCompiler:
             code: The code block to load.
 
         """
-        self.compile(code)
+        asm = self.compile(code)
 
         # get the user program and remove indentation
-        asm = ''
-        for line in code.asm.split('\n'):
+        for line in asm.split('\n'):
             asm += line.lstrip() + '\n'
 
         # add a NOP to the beginning of the program
         setup_asm = 'NOP\n'
         # add a 1 ms inc_ref to the beginning of the program
-        setup_asm += f'TIME inc_ref #{self.soc.us2cycles(1e3)}\n'
+        setup_asm += f'TIME inc_ref #{int(self.soc.us2cycles(1e3))}\n'
         # add an infinite loop to the end of the program
         teardown_asm = 'JUMP HERE\n'
         # add setup and teardown asm
@@ -192,27 +187,27 @@ class QickPulseCompiler:
 
     def off_prog(self) -> QickCode:
         """A program that outputs 0's on all ports."""
-        pass
         # TODO
-        # prog = QickCode(length=0)
+        prog = QickCode(length=0)
 
-        # # write 0 waveform into all WPORTs
-        # for p in self.board.ports['DAC']:
-        #     prog.rf_square_pulse(ch=p, time=0, length=1e-6, freq=100e6, amp=0)
+        # write 0 waveform into all WPORTs
+        for p in self.board.ports['DAC']:
+            prog.rf_square_pulse(ch=p, time=0, length=1e-6, freq=100e6, amp=0)
 
-        # # disable all DPORTs
-        # prog.asm += '// write 0 into all DPORTs\n'
-        # prog.asm += 'REG_WR r0 imm #0\n'
-        # for port in self.board.data_ports():
-        #     prog.asm += f'DPORT_WR p{port} reg r0\n'
+        # disable all DPORTs
+        prog.asm += '// write 0 into all DPORTs\n'
+        prog.asm += 'REG_WR r0 imm #0\n'
+        for port in self.board.data_ports():
+            prog.asm += f'DPORT_WR p{port} reg r0\n'
 
-        # # disable all trig ports
-        # for port in self.board.ports['TRIG']:
-        #     prog.trig(ch=port, state=False, time=0)
+        # disable all trig ports
+        for port in self.board.ports['TRIG']:
+            prog.trig(ch=port, state=False, time=0)
 
-        # return prog
+        return prog
 
     def stop(self):
         """Upload a program that outputs 0's on all ports."""
-        self.load(self.off_prog())
+        # TODO
+        # self.load(self.off_prog())
         self.soc.tproc.start()
