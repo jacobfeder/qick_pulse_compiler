@@ -1,7 +1,8 @@
 """Port mapping and offset handling for the inputs / outputs of different
 QICK boards / firmwares."""
 
-from typing import Dict, List
+from collections import namedtuple
+from typing import Dict, List, Union
 from numbers import Number
 
 class QickIO:

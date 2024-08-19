@@ -205,7 +205,7 @@ class QickReg(QickVarType):
         """TODO
 
         Args:
-            vale: TODO
+            value: TODO
 
         """
         if self.held_type is None:
@@ -226,6 +226,8 @@ class QickReg(QickVarType):
             pre_asm, exp_asm = value.render_asm()
             asm = pre_asm
             asm += f'REG_WR {self} op -op({exp_asm})\n'
+        else:
+            raise TypeError(f'Tried to assign reg a value with an invalid type.')
 
         self.context.code.asm += asm
 
@@ -378,7 +380,12 @@ class QickCode:
         # length of code block
         self.length = None
 
-        self.offset = offset
+        if offset is None:
+            with QickContext(self):
+                self.offset = QickEpoch(0)
+        else:
+            self.offset = offset
+
         self.name = name
         if self.name is not None:
             self.asm += f'// ---------------\n// {self.name}\n// ---------------\n'
@@ -404,29 +411,31 @@ class QickCode:
         else:
             return dict_key + subid
 
-    # def deembed_io(self, io: Union[QickIODevice, QickIO, int]) -> Tuple:
-    #     """Consolidate all of the offsets relevant to the provided IO.
+    def deembed_io(self, io: Union[QickIODevice, QickIO, int]) -> Tuple:
+        """Consolidate all of the offsets relevant to the provided IO.
 
-    #     Args:
-    #         io: QickIODevice, QickIO, or port to calculate the offsets of.
+        Args:
+            io: QickIODevice, QickIO, or port to calculate the offsets of.
 
-    #     Returns:
-    #         A tuple containing (port, offset). The port is the firmware port
-    #         number and the offset is a QickTime.
+        Returns:
+            A tuple containing (port, offset). The port is the firmware port
+            number and the offset is a QickTime.
 
-    #     """
-    #     offset = self.offset
-    #     if isinstance(io, QickIODevice):
-    #         port = self.key(io)
-    #         offset += io.total_offset()
-    #     elif isinstance(io, QickIO):
-    #         port = self.key(io)
-    #         offset += io.offset
-    #     else:
-    #         port = io
-    #     offset = QickTime(time=offset, relative=False, code=self)
+        """
+        with QickContext(code=self):
+            if isinstance(io, QickIODevice):
+                port = self.key(io)
+                port_offset = QickEpoch(io.total_offset())
+            elif isinstance(io, QickIO):
+                port = self.key(io)
+                port_offset = QickEpoch(io.offset)
+            else:
+                port = io
+                port_offset = QickEpoch(0)
 
-    #     return port, offset
+        offset = self.offset + port_offset
+
+        return port, offset
 
     def merge_kvp(self, kvp: Dict):
         """Merge the given key-value pairs into this code block's key-value
@@ -450,7 +459,6 @@ class QickCode:
     #         code: Code to run after this code.
 
     #     """
-    #     self._check_board(code)
 
     #     # merge code's kvp dict into this kvp dict
     #     # offset all times in code by the length of this block

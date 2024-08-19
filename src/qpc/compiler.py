@@ -30,7 +30,8 @@ else:
     local_soc = True
 from qick.tprocv2_assembler import Assembler
 
-from qpc.types import QickCode
+from qpc.types import QickLabel, QickTime, QickFreq, QickReg, QickCode
+from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
 
@@ -47,8 +48,9 @@ class FakeSoC:
     def __init__(self, *args, **kwargs):
         self.tproc = FakeTProc()
 
+    # simulate us2cycles, freq2reg, etc.
     def __getattr__(self, attr):
-        return lambda x: x
+        return lambda x: int(x)
 
 class QickPulseCompiler:
     """Runs a QICK program for tprocv2."""
@@ -120,16 +122,40 @@ class QickPulseCompiler:
                 f'[{io}]')
 
         try:
-            port_info = self.board.ports_mapping[channel_type][channel]
+            port_info = self.iomap.mappings[channel_type][channel]
         except KeyError as err:
-            raise ValueError(f'Qick board does not contain port [{channel}].') \
-            from err
+            raise ValueError(f'iomap does not contain port [{channel}].') from err
 
-        if port_info not in self.board.ports[device.io.channel_type]:
+        if port_info not in self.iomap.ports[device.io.channel_type]:
             raise ValueError(f'The port [{port_info}] associated with the'
                 'given device is not a valid port for the board.')
 
         return port_info
+
+    def _compile(self, code: QickCode, regno: int, labelno: int):
+        """TODO"""
+        asm = code.asm
+
+        for key, qick_obj in code.kvp.items():
+            if isinstance(qick_obj, QickIO):
+                asm = asm.replace(key, str(self.iomap.mappings[qick_obj.channel_type][qick_obj.channel]))
+            elif isinstance(qick_obj, QickIODevice):
+                asm = asm.replace(key, str(self.iomap.mappings[qick_obj.io.channel_type][qick_obj.io.channel]))
+            elif isinstance(qick_obj, QickTime):
+                asm = asm.replace(key, str(self.soc.us2cycles(qick_obj.val * 1e6)))
+            elif isinstance(qick_obj, QickLabel):
+                asm = asm.replace(key, f'{qick_obj.prefix}_{labelno}')
+                labelno += 1
+            elif isinstance(qick_obj, QickFreq):
+                asm = asm.replace(key, str(self.soc.freq2reg(qick_obj.val / 1e6)))
+            elif isinstance(qick_obj, QickReg):
+                if qick_obj.reg is None:
+                    asm = asm.replace(key, f'r{regno}')
+                    regno += 1
+                else:
+                    asm = asm.replace(key, qick_obj.reg)
+
+        return asm, labelno
 
     def compile(self, code: QickCode):
         """TODO.
@@ -138,7 +164,8 @@ class QickPulseCompiler:
             code: The code block to compile.
 
         """
-        return self.code.asm
+        asm, _ = self._compile(code=code, regno=0, labelno=0)
+        return asm
 
     def run(self, code: QickCode):
         # start the program
@@ -152,10 +179,9 @@ class QickPulseCompiler:
             code: The code block to load.
 
         """
-        asm = self.compile(code)
-
         # get the user program and remove indentation
-        for line in asm.split('\n'):
+        asm = ''
+        for line in self.compile(code).split('\n'):
             asm += line.lstrip() + '\n'
 
         # add a NOP to the beginning of the program
@@ -191,17 +217,17 @@ class QickPulseCompiler:
         prog = QickCode(length=0)
 
         # write 0 waveform into all WPORTs
-        for p in self.board.ports['DAC']:
+        for p in self.iomap.dac_ports():
             prog.rf_square_pulse(ch=p, time=0, length=1e-6, freq=100e6, amp=0)
 
         # disable all DPORTs
         prog.asm += '// write 0 into all DPORTs\n'
         prog.asm += 'REG_WR r0 imm #0\n'
-        for port in self.board.data_ports():
+        for port in self.iomap.data_ports():
             prog.asm += f'DPORT_WR p{port} reg r0\n'
 
         # disable all trig ports
-        for port in self.board.ports['TRIG']:
+        for port in self.iomap.trigger_ports():
             prog.trig(ch=port, state=False, time=0)
 
         return prog

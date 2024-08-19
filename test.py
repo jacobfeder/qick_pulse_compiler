@@ -18,22 +18,39 @@ from qpc.compiler import QickPulseCompiler
 
 #         # self.add(experiment_loop)
 
-if __name__ == '__main__':
-    import logging
-
-    nspyre_init_logger(log_level=logging.INFO)
-
+def test1():
     code = QickCode()
     with QickContext(code):
         time1 = QickTime(1e-6)
         time2 = QickTime(2e-6)
 
-        reg1 = QickReg()
-        reg1.assign(time1)
+        reg0 = QickReg()
+        reg0.assign(time1)
 
-        reg2 = QickReg()
-        reg2.assign(reg1 + time2)
+        reg1 = QickReg()
+        reg1.assign(reg0 + time2)
+
+    return code
+
+def test2():
+    code = QickCode()
+    with QickContext(code):
+        time1 = QickTime(1e-6)
+        time2 = QickTime(2e-6)
+
+        reg0 = QickReg()
+        reg0.assign(time1)
+
+        reg1 = QickReg()
+        reg1.assign(reg0 + time2)
+
+    return code
+
+if __name__ == '__main__':
+    import logging
+
+    nspyre_init_logger(log_level=logging.INFO)
 
     with QickPulseCompiler(fake_soc=True) as qpc:
-        qpc.load(code)
+        qpc.load(test1())
         input('Press enter to exit\n')
