@@ -30,7 +30,7 @@ else:
     local_soc = True
 from qick.tprocv2_assembler import Assembler
 
-from qpc.types import QickLabel, QickTime, QickFreq, QickReg, QickCode
+from qpc.types import QickLabel, QickTime, QickFreq, QickReg, QickExpression, QickCode
 from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
@@ -154,6 +154,12 @@ class QickPulseCompiler:
                     regno += 1
                 else:
                     asm = asm.replace(key, qick_obj.reg)
+            elif isinstance(qick_obj, QickExpression):
+                pre_asm, exp_asm = qick_obj.render_asm()
+                asm = asm.replace(key + 'pre_asm', pre_asm)
+                asm = asm.replace(key + 'exp_asm', exp_asm)
+            else:
+                raise RuntimeError(f'[{qick_obj}] not supported.')
 
         return asm, labelno
 

@@ -223,9 +223,7 @@ class QickReg(QickVarType):
         elif isinstance(value, QickReg):
             asm = f'REG_WR {self} op -op({value})\n'
         elif isinstance(value, QickExpression):
-            pre_asm, exp_asm = value.render_asm()
-            asm = pre_asm
-            asm += f'REG_WR {self} op -op({exp_asm})\n'
+            asm = f'{value.pre_asm_key()}REG_WR {self} op -op({value.exp_asm_key()})\n'
         else:
             raise TypeError(f'Tried to assign reg a value with an invalid type.')
 
@@ -262,6 +260,16 @@ class QickExpression(QickVarType):
         self.right = right
         self.operator = operator
         self.held_type: QickConstType = left.qick_type()
+
+    def __str__(self):
+        raise ValueError('QickExpression cannot be converted into a string '
+            'key. Use pre_asm_key() and exp_asm_key().')
+
+    def pre_asm_key(self) -> str:
+        return self.context.code.key(obj=self, subid='pre_asm')
+
+    def exp_asm_key(self) -> str:
+        return self.context.code.key(obj=self, subid='exp_asm')
 
     def typecast(self, other: Union[QickType, Type]) -> QickExpression:
         """Return self converted into the type of other."""
@@ -340,7 +348,7 @@ class QickExpression(QickVarType):
 #         self.sweep_ch = sweep_ch
 
 #     def __str__(self):
-#         raise ValueError('QickSweepArange cannot be converted into a string'
+#         raise ValueError('QickSweepArange cannot be converted into a string '
 #             'key. Use start_key(), stop_key(), and step_key().')
 
 #     def start_key(self) -> str:
