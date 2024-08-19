@@ -38,6 +38,8 @@ _logger = logging.getLogger(__name__)
 # maximum immediate value in the tproc
 MAX_IMM = 2**23 - 1
 
+# maximum register number
+MAX_REG = 15
 
 # dummy classes to simulate the soc object
 class FakeTProc:
@@ -132,6 +134,42 @@ class QickPulseCompiler:
 
         return port_info
 
+    def render_exp(self, exp, regno) -> Tuple[str, str]:
+        """Create assembly code that evaluates a QickExpression."""
+
+        if regno == MAX_REG:
+            raise RuntimeError('Ran out of registers during compilation.')
+
+        # series of REG_WR instructions that go before this expression
+        # to prepare the operands
+        pre_asm = ''
+        # assembly code of this expression, e.g. 'r1 + 5' or 'r1 + r2'
+        exp_asm = ''
+
+        if isinstance(exp.left, QickExpression):
+            left_pre, left_exp = self.render_asm(exp, regno + 1)
+            pre_asm += left_pre
+            pre_asm += f'REG_WR r{regno} op -op({left_exp})\n'
+            regno += 1
+        elif isinstance(exp.left, QickReg):
+            exp_asm += f'{exp.left} '
+        else:
+            exp_asm += f'#{exp.left} '
+
+        exp_asm += exp.operator
+
+        if isinstance(exp.right, QickExpression):
+            right_pre, right_exp = self.render_asm(exp, regno + 1)
+            pre_asm += right_pre
+            pre_asm += f'REG_WR r{regno} op -op({right_exp})\n'
+            regno += 1
+        elif isinstance(exp.right, QickReg):
+            exp_asm += f' {exp.right}'
+        else:
+            exp_asm += f' #{exp.right}'
+
+        return pre_asm, exp_asm
+
     def _compile(self, code: QickCode, regno: int, labelno: int):
         """TODO"""
         asm = code.asm
@@ -155,7 +193,7 @@ class QickPulseCompiler:
                 else:
                     asm = asm.replace(key, qick_obj.reg)
             elif isinstance(qick_obj, QickExpression):
-                pre_asm, exp_asm = qick_obj.render_asm()
+                pre_asm, exp_asm = self.render_exp(exp=qick_obj, regno=regno)
                 asm = asm.replace(key + 'pre_asm', pre_asm)
                 asm = asm.replace(key + 'exp_asm', exp_asm)
             else:

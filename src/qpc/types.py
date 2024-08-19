@@ -281,38 +281,6 @@ class QickExpression(QickVarType):
                 f'into type [{other}].') from err
         return QickExpression(left=left, operator=self.operator, right=right)
 
-    def render_asm(self) -> Tuple[str, str]:
-        """Create assembly code that evaluates the expression."""
-        # series of REG_WR instructions that go before this expression
-        # to prepare the operands
-        pre_asm = ''
-        # assembly code of this expression, e.g. 'r1 + 5' or 'r1 + r2'
-        exp_asm = ''
-
-        if isinstance(self.left, QickExpression):
-            left_pre, left_exp = left.render_asm()
-            pre_asm += left_pre
-            left_reg = QickReg()
-            pre_asm += f'REG_WR {left_reg} op -op({left_exp})\n'
-        elif isinstance(self.left, QickReg):
-            exp_asm += f'{self.left} '
-        else:
-            exp_asm += f'#{self.left} '
-
-        exp_asm += self.operator
-
-        if isinstance(self.right, QickExpression):
-            right_pre, right_exp = right.render_asm()
-            pre_asm += right_pre
-            right_reg = QickReg()
-            pre_asm += f'REG_WR {right_reg} op -op({right_exp})\n'
-        elif isinstance(self.right, QickReg):
-            exp_asm += f' {self.right}'
-        else:
-            exp_asm += f' #{self.right}'
-
-        return pre_asm, exp_asm
-
 # class QickSweptReg(QickReg):
 #     """Represents the arguments to a swept variable."""
 #     def __init__(
