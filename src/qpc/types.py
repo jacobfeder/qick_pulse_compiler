@@ -1,4 +1,9 @@
-"""TODO"""
+"""Fundamental types to be used in generating pusle programs that can be
+compiled using the QickPulseCompiler.
+
+Author: Jacob Feder
+Date: 2024-08-16
+"""
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from inspect import isclass
@@ -202,10 +207,10 @@ class QickReg(QickVarType):
             raise TypeError(f'QickReg cannot be typecast.')
 
     def assign(self, value: Union[int, QickType]):
-        """TODO
+        """Assign a value to a register.
 
         Args:
-            value: TODO
+            value: The value to assign.
 
         """
         if self.held_type is None:
@@ -260,6 +265,8 @@ class QickExpression(QickVarType):
         self.right = right
         self.operator = operator
         self.held_type: QickConstType = left.qick_type()
+        # register that this expression will eventually be assigned to
+        self.reg = None
 
     def __str__(self):
         raise ValueError('QickExpression cannot be converted into a string '

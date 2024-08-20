@@ -30,7 +30,8 @@ else:
     local_soc = True
 from qick.tprocv2_assembler import Assembler
 
-from qpc.types import QickLabel, QickTime, QickFreq, QickReg, QickExpression, QickCode
+from qpc.types import QickLabel, QickTime, QickFreq, QickReg, QickExpression
+from qpc.types import QickContext, QickCode
 from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class QickPulseCompiler:
         ):
         """
         Args:
-            iomap: TODO.
+            iomap: Mapping between input/output names and their firmware ports.
             ns_addr: Pyro nameserver address for the RFSoC.
             ns_port: Pyro nameserver port for the RFSoC.
             soc_proxy: Pyro SoC object name.
@@ -134,11 +135,14 @@ class QickPulseCompiler:
 
         return port_info
 
-    def render_exp(self, exp, regno) -> Tuple[str, str]:
-        """Create assembly code that evaluates a QickExpression."""
+    def _render_exp(self, exp: QickExpression, regno: int) -> Tuple[str, str]:
+        """Create the assembly code that evaluates a QickExpression.
 
-        if regno == MAX_REG:
-            raise RuntimeError('Ran out of registers during compilation.')
+        Args:
+            exp: Expression to render.
+            regno: Number of lowest unused register.
+
+        """
 
         # series of REG_WR instructions that go before this expression
         # to prepare the operands
@@ -147,9 +151,10 @@ class QickPulseCompiler:
         exp_asm = ''
 
         if isinstance(exp.left, QickExpression):
-            left_pre, left_exp = self.render_asm(exp, regno + 1)
-            pre_asm += left_pre
-            pre_asm += f'REG_WR r{regno} op -op({left_exp})\n'
+            left_pre_asm, left_exp_asm = self._render_exp(exp=exp.left, regno=regno + 1)
+            pre_asm += left_pre_asm
+            pre_asm += f'REG_WR r{regno} op -op({left_exp_asm})\n'
+            exp_asm += f'r{regno} '
             regno += 1
         elif isinstance(exp.left, QickReg):
             exp_asm += f'{exp.left} '
@@ -159,10 +164,10 @@ class QickPulseCompiler:
         exp_asm += exp.operator
 
         if isinstance(exp.right, QickExpression):
-            right_pre, right_exp = self.render_asm(exp, regno + 1)
-            pre_asm += right_pre
-            pre_asm += f'REG_WR r{regno} op -op({right_exp})\n'
-            regno += 1
+            right_pre_asm, right_exp_asm = self._render_exp(exp=exp.right, regno=regno + 1)
+            pre_asm += right_pre_asm
+            pre_asm += f'REG_WR r{regno} op -op({right_exp_asm})\n'
+            exp_asm += f' r{regno}'
         elif isinstance(exp.right, QickReg):
             exp_asm += f' {exp.right}'
         else:
@@ -171,9 +176,34 @@ class QickPulseCompiler:
         return pre_asm, exp_asm
 
     def _compile(self, code: QickCode, regno: int, labelno: int):
-        """TODO"""
+        """Compile the assembly code. All special *key* in the assembly code
+        will be replaced by their firmware-specific values.
+
+        Args:
+            code: Code to compile.
+            regno: Number of lowest unused register.
+            labelno: Lowest unused labelid in order to ensure all labels
+                are unique. 
+
+        """
         asm = code.asm
 
+        # calculate how many registers will be allocated for the QickExpression
+        nregs = 0
+        for qick_obj in code.kvp.values():
+            if isinstance(qick_obj, QickReg) and qick_obj.reg is None:
+                nregs += 1
+
+        # render the QickExpression
+        with QickContext(code=code):
+            # make a copy since we'll be adding new elements
+            for key, qick_obj in code.kvp.copy().items():
+                if isinstance(qick_obj, QickExpression):
+                    pre_asm, exp_asm = self._render_exp(exp=qick_obj, regno=regno + nregs)
+                    asm = asm.replace(key + 'pre_asm', pre_asm)
+                    asm = asm.replace(key + 'exp_asm', exp_asm)
+
+        # render the rest of the non-code objects
         for key, qick_obj in code.kvp.items():
             if isinstance(qick_obj, QickIO):
                 asm = asm.replace(key, str(self.iomap.mappings[qick_obj.channel_type][qick_obj.channel]))
@@ -192,23 +222,35 @@ class QickPulseCompiler:
                     regno += 1
                 else:
                     asm = asm.replace(key, qick_obj.reg)
-            elif isinstance(qick_obj, QickExpression):
-                pre_asm, exp_asm = self.render_exp(exp=qick_obj, regno=regno)
-                asm = asm.replace(key + 'pre_asm', pre_asm)
-                asm = asm.replace(key + 'exp_asm', exp_asm)
-            else:
-                raise RuntimeError(f'[{qick_obj}] not supported.')
+
+        # recursively compile the rest of the QickCode objects
+        for key, qick_obj in code.kvp.items():
+            if isinstance(qick_obj, QickCode):
+                asm, labelno = self._compile(code=qick_obj, regno=regno, labelno=labelno)
+                asm = asm.replace(key, asm)
+
+        if '*' in asm:
+            raise RuntimeError(f'Internal error: some keys were not matched '
+                f'during compilation. Program:\n{asm}')
 
         return asm, labelno
 
-    def compile(self, code: QickCode):
-        """TODO.
+    def compile(self, code: QickCode, start_reg: int = 0):
+        """Compile a QickCode object into assembly code compatible with tprocv2.
 
         Args:
             code: The code block to compile.
+            start_reg: Lowest register number that will be used by the compiler.
+                All registers below this will be ignored and can utilized by the
+                user for global variables.
 
         """
-        asm, _ = self._compile(code=code, regno=0, labelno=0)
+        asm, _ = self._compile(
+            code=code,
+            regno=start_reg,
+            labelno=0
+        )
+
         return asm
 
     def run(self, code: QickCode):
