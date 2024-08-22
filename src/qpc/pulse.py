@@ -3,7 +3,7 @@ from typing import Optional
 from numbers import Number
 
 from qpc.io import QickIO, QickIODevice
-from qpc.types import QickType, QickVarType, QickTime, QickReg, QickCode
+from qpc.types import QickType, QickVarType, QickFreq, QickTime, QickReg, QickCode
 
 class Delay(QickCode):
     def __init__(self, length: QickType, *args, **kwargs):
@@ -64,42 +64,44 @@ class TrigPulse(QickCode):
             self.trig(ch=ch, state=True, time=0)
             self.trig(ch=ch, state=False, time=length)
 
-# class RFSquarePulse(QickCode):
-#     def __init__(
-#         self,
-#         ch: Union[QickIODevice, QickIO, int],
-#         freq: Optional[Union[Number, QickReg]],
-#         amp: Optional[Union[int, QickReg]],
-#         pulse_length: Union[Number, QickReg],
-#         *args,
-#         pulse_time: Union[Number, QickReg] = 0,
-#         block_length: Optional[Number] = None,
-#         **kwargs,
-#     ):
-#         """An RF square pulse.
+class RFSquarePulse(QickCode):
+    def __init__(
+        self,
+        ch: Union[QickIODevice, QickIO, int],
+        length: Optional[Union[Number, QickTime, QickVarType]],
+        freq: Optional[Union[Number, QickFreq, QickVarType]],
+        amp: Optional[int],
+        time: Optional[Union[Number, QickTime, QickVarType]] = 0,
+        *args,
+        **kwargs,
+    ):
+        """An RF square pulse.
 
-#         Args:
-#             ch: QickIODevice, QickIO, or port to output an RF pulse.
-#             freq: RF frequency of the pulse. Pass a frequency (Hz) or a register
-#                 containing the frequency in cycles. Set to None to use the value
-#                 currently stored in w_freq.
-#             amp: RF amplitude. Pass an integer (-32,768 to 32,767) or a register
-#                 containing the amplitude. Set to None to use the value currently
-#                 stored in w_gain.
-#             pulse_length: Length of the RF pulse. Pass a time (s) or a register
-#                 containing the time in cycles. Set to None to use the value
-#                 currently stored in w_length.
-#             pulse_time: Start time of the trigger pulse within this code block.
-#             block_length: Length of this code block. If None, use pulse_length.
+        Args:
+            ch: QickIODevice, QickIO, or port to output an RF pulse.
+            length: Length of the RF pulse. Pass a time (s), QickLength,
+                QickReg, QickExpression. Set to None to use the value
+                currently in w_length.
+            freq: RF frequency of the pulse. Pass a frequency (s), QickFreq,
+                QickReg, QickExpression. Set to None to use the value
+                currently in w_freq.
+            amp: RF amplitude. Pass an integer (-32,768 to 32,767).
+                Set to None to use the value currently stored in w_gain.
+            time: Time at which to play the pulse. Pass a time (s), QickTime,
+                QickReg, QickExpression. Set to None to use the value
+                currently in out_usr_time.
 
-#         """
-#         if block_length is not None:
-#             super().__init__(*args, length=block_length, **kwargs)
-#         else:
-#             super().__init__(*args, length=pulse_length, **kwargs)
+        """
+        super().__init__(*args, **kwargs)
+        self.length = length
 
-#         self.rf_square_pulse(ch=ch, time=pulse_time, length=pulse_length, freq=freq, amp=amp)
-
+        self.rf_square_pulse(
+            ch=ch,
+            length=length,
+            freq=freq,
+            amp=amp,
+            time=time,
+        )
 
 # # prototype code for mixing the RF with a user-defined envelope
 

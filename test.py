@@ -3,7 +3,7 @@ from numbers import Number
 from nspyre import nspyre_init_logger
 
 from qpc.types import QickCode, QickContext, QickReg, QickTime
-from qpc.pulse import Delay, TrigConst, TrigPulse
+from qpc.pulse import Delay, TrigConst, TrigPulse, RFSquarePulse
 from qpc.compiler import QPC
 
 def test1():
@@ -66,14 +66,24 @@ def test4():
     return TrigPulse(ch=1, length=2e-6)
 
 def test5():
-    t1 = TrigPulse(ch=0, length=1e-6)
-    t2 = TrigPulse(ch=1, length=2e-6)
-    return t1 + t2
+    t1 = TrigPulse(ch=0, length=1e-6, name='t1')
+    t2 = TrigPulse(ch=1, length=2e-6, name='t2')
+    return (t1 + t2)
 
 def test6():
-    t1 = TrigPulse(ch=0, length=1e-6)
-    t2 = TrigPulse(ch=1, length=2e-6)
+    t1 = TrigPulse(ch=0, length=1e-6, name='t1')
+    t2 = TrigPulse(ch=1, length=2e-6, name='t2')
     return t1 | t2
+
+def test7():
+    rf1 = RFSquarePulse(ch=0, length=1e-6, freq=100e6, amp=1_000)
+    return rf1
+
+def test8():
+    rf1 = RFSquarePulse(ch=0, length=1e-6, freq=100e6, amp=1_000, name='rf1')
+    rf2 = RFSquarePulse(ch=0, length=2e-6, freq=None, amp=None, time=5e-6, name='rf2')
+
+    return rf1 + rf2
 
 if __name__ == '__main__':
     import logging
@@ -81,5 +91,5 @@ if __name__ == '__main__':
     nspyre_init_logger(log_level=logging.INFO)
 
     with QPC(fake_soc=True) as qpc:
-        qpc.run(test6())
+        qpc.run(test8())
         input('Press enter to exit\n')

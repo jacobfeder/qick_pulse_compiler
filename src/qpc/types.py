@@ -6,7 +6,7 @@ Date: 2024-08-16
 """
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from copy import copy
+from copy import deepcopy
 from inspect import isclass
 from numbers import Number
 from typing import Optional, Union, Type
@@ -58,6 +58,10 @@ class QickObject:
                 'QickCode block.')
         else:
             return self.context.code.key(self)
+
+    def contextcast(self, new_context: QickContext):
+        """Set this object's context to new_context."""
+        self.context = new_context
 
 class QickLabel:
     """Represents an assembly code label."""
@@ -157,8 +161,9 @@ class QickEpoch(QickTime):
 
 class QickLength(QickTime):
     """Represents the length of a pulse."""
-    def __init__(self, val: Number, ch):
+    def __init__(self, val: Number, ch: int):
         super().__init__(val=val)
+        self.ch = ch
         # TODO need to integrate type checking for correct channel number
         # when adding regs
 
@@ -284,6 +289,14 @@ class QickExpression(QickVarType):
         raise ValueError('QickExpression cannot be converted into a string '
             'key. Use pre_asm_key() and exp_asm_key().')
 
+    def contextcast(self, new_context: QickContext):
+        """Set this object's context to new_context."""
+        self.context = new_context
+        if isinstance(self.left, QickExpression):
+            self.left.contextcast(new_context)
+        if isinstance(self.right, QickExpression):
+            self.right.contextcast(new_context)
+
     def pre_asm_key(self) -> str:
         return self.context.code.key(obj=self, subid='pre_asm')
 
@@ -387,14 +400,6 @@ class QickCode:
 
         self.name = name
 
-    def __copy__(self) -> QickCode:
-        new_code = QickCode(offset=None, name=self.name)
-        new_code.asm = self.asm
-        new_code.kvp = self.kvp.copy()
-        new_code.length = self.length
-        new_code.offset = self.offset
-        return new_code
-
     def __str__(self) -> str:
         if len(qpc_context):
             return qpc_context[-1].code.key(self)
@@ -442,10 +447,10 @@ class QickCode:
             port_offset = QickTime(io.offset)
         else:
             port = io
-            port_offset = QickTime(0)#QickReg(reg='s0')
+            port_offset = QickReg(reg='s0')
 
         if self.offset is None:
-            code_offset = QickTime(0)#QickReg(reg='s0')
+            code_offset = QickReg(reg='s0')
         else:
             code_offset = self.offset
 
@@ -468,8 +473,8 @@ class QickCode:
         Args:
             ch: QickIODevice, QickIO, or port to trigger.
             state: Whether to set the trigger state True or False.
-            time: Time at which to set the state. Pass a time (s) or a register
-                containing the time in cycles. Set to None to use the value
+            time: Time at which to set the state. Pass a time (s), QickTime,
+                QickReg, QickExpression. Set to None to use the value
                 currently in out_usr_time.
 
         """
@@ -496,89 +501,68 @@ class QickCode:
         mode_reg = {'oneshot': 0, 'periodic': 1}[mode]
         stdysel_reg = {'last': 0, 'zero': 1}[stdysel]
 
-        mc = phrst*0b10000 + stdysel_reg*0b01000 + mode_reg*0b00100 + outsel_reg
+        mc = phrst * 0b10000 + stdysel_reg * 0b01000 + mode_reg * 0b00100 + outsel_reg
         return mc
 
-    # def rf_square_pulse(
-    #         self,
-    #         ch: Union[QickIODevice, QickIO, int],
-    #         time: Optional[Union[QickTime, Number, QickReg]],
-    #         length: Optional[Union[Number, QickReg]],
-    #         freq: Optional[Union[QickFreq, Number, QickReg]] = None,
-    #         amp: Optional[int] = None,
-    #     ):
-    #     """Generate a square RF pulse.
+    def rf_square_pulse(
+            self,
+            ch: Union[QickIODevice, QickIO, int],
+            length: Optional[Union[Number, QickTime, QickVarType]],
+            freq: Optional[Union[Number, QickFreq, QickVarType]],
+            amp: Optional[int],
+            time: Optional[Union[Number, QickTime, QickVarType]],
+        ):
+        """Generate a square RF pulse.
 
-    #     Args:
-    #         ch: QickIODevice, QickIO, or port to output an RF pulse.
-    #         time: Time at which to set the state. Pass a time (s) or a register
-    #             containing the time in cycles. Set to None to use the value
-    #             currently in out_usr_time.
-    #         length: Length of the RF pulse. Pass a time (s) or a register
-    #             containing the time in cycles. Set to None to use the value
-    #             currently stored in w_length.
-    #         freq: RF frequency of the pulse. Pass a frequency (Hz) or a register
-    #             containing the frequency in cycles. Set to None to use the value
-    #             currently stored in w_freq.
-    #         amp: RF amplitude. Pass an integer (-32,768 to 32,767) or a register
-    #             containing the amplitude. Set to None to use the value currently
-    #             stored in w_gain.
+        Args:
+            ch: QickIODevice, QickIO, or port to output an RF pulse.
+            length: Length of the RF pulse. Pass a time (s), QickLength,
+                QickReg, QickExpression. Set to None to use the value
+                currently in w_length.
+            freq: RF frequency of the pulse. Pass a frequency (s), QickFreq,
+                QickReg, QickExpression. Set to None to use the value
+                currently in w_freq.
+            amp: RF amplitude. Pass an integer (-32,768 to 32,767).
+                Set to None to use the value currently stored in w_gain.
+            time: Time at which to play the pulse. Pass a time (s), QickTime,
+                QickReg, QickExpression. Set to None to use the value
+                currently in out_usr_time.
 
-    #     """
-    #     port, offset = self.deembed_io(ch)
+        """
+        with QickContext(code=self):
+            port, offset = self.deembed_io(ch)
 
-    #     asm = f'// Pulsing RF port {port}\n'
+            self.asm += f'// Pulsing RF port {port}\n'
 
-    #     if time is not None:
-    #         # if time is not associated with any code block, associate it now
-    #         self.associate_code(time)
+            if time is not None:
+                if isinstance(time, Number):
+                    time = QickTime(time)
+                # set the play time of the pulse
+                out_usr_time = QickReg(reg='out_usr_time')
+                out_usr_time.assign(offset + time)
 
-    #         if isinstance(time, QickReg):
-    #             asm += f'REG_WR out_usr_time op -op({time} + #{offset})\n'
-    #         elif isinstance(time, QickTime) or isinstance(time, Number):
-    #             asm += f'REG_WR out_usr_time imm #{time + offset}\n'                
-    #         else:
-    #             raise ValueError(f'time must be a QickTime, number, or QickReg.')
+            if length is not None:
+                if isinstance(length, Number):
+                    length = QickLength(val=length, ch=port)
+                # set the play time of the pulse
+                w_length = QickReg(reg='w_length')
+                w_length.assign(length)
 
-    #     if length is not None:
-    #         # if length is not associated with any code block, associate it now
-    #         self.associate_code(length)
+            if freq is not None:
+                if isinstance(freq, Number):
+                    freq = QickFreq(freq)
+                # set the play time of the pulse
+                w_freq = QickReg(reg='w_freq')
+                w_freq.assign(freq)
 
-    #         if isinstance(length, QickReg):
-    #             asm += f"""REG_WR w_length op -op({length})\n"""
-    #         elif isinstance(length, Number):
-    #             asm += f"""REG_WR w_length imm #{QickTime(time=length, relative=False, code=self)}\n"""
-    #         else:
-    #             raise ValueError(f'length must be a number or QickReg.')
+            if amp is not None:
+                w_gain = QickReg(reg='w_gain')
+                w_gain.assign(amp)
 
-    #     if freq is not None:
-    #         # if freq is not associated with any code block, associate it now
-    #         self.associate_code(freq)
+            w_conf = QickReg(reg='w_conf')
+            w_conf.assign(self.sig_gen_conf(outsel='dds', mode='oneshot', stdysel='zero', phrst=0))
 
-    #         if isinstance(freq, QickReg):
-    #             asm += f"""REG_WR w_freq op -op({freq})\n"""
-    #         elif isinstance(freq, QickFreq):
-    #             asm += f"""REG_WR w_freq imm #{freq}\n"""
-    #         elif isinstance(freq, Number):
-    #             asm += f"""REG_WR w_freq imm #{QickFreq(freq=freq, code=self)}\n"""
-    #         else:
-    #             raise ValueError(f'freq must be a QickFreq, number, or QickReg.')
-
-    #     if amp is not None:
-    #         # if amp is not associated with any code block, associate it now
-    #         self.associate_code(amp)
-
-    #         if isinstance(amp, QickReg):
-    #             asm += f"""REG_WR w_gain op -op({amp})\n"""
-    #         elif isinstance(amp, Number):
-    #             asm += f"""REG_WR w_gain imm #{amp}\n"""
-    #         else:
-    #             raise ValueError(f'amp must be a number or QickReg.')
-
-    #     asm += f"REG_WR w_conf imm #{self.sig_gen_conf(outsel='dds', mode='oneshot', stdysel='zero', phrst=0)}\n"
-    #     asm += f'WPORT_WR p{port} r_wave\n'
-
-    #     self.asm += asm
+            self.asm += f'WPORT_WR p{port} r_wave\n'
 
     def add(self, code: QickCode):
         """Set another code block to run sequentially after this block.
@@ -588,7 +572,7 @@ class QickCode:
 
         """
         # make a copy so we don't modify the original code
-        code = copy(code)
+        code = deepcopy(code)
 
         with QickContext(code=code):
             # calculate the amount to offset all pulses in code
@@ -623,7 +607,7 @@ class QickCode:
 
         """
         # make a copy so we don't modify the original code
-        code = copy(code)
+        code = deepcopy(code)
 
         with QickContext(code=self):
             self.length = code.length
