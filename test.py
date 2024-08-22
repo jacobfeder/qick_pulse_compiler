@@ -3,20 +3,8 @@ from numbers import Number
 from nspyre import nspyre_init_logger
 
 from qpc.types import QickCode, QickContext, QickReg, QickTime
-from qpc.compiler import QickPulseCompiler
-
-# class Test(QickCode):
-#     def __init__(
-#         self,
-#     ):
-#         super().__init__(length=0)
-
-#         with QickContext(self):
-#             pl = QickTime(1e-6)
-#             reg1 = QickReg()
-#             exp = 
-
-#         # self.add(experiment_loop)
+from qpc.pulse import Delay, TrigConst, TrigPulse
+from qpc.compiler import QPC
 
 def test1():
     code = QickCode()
@@ -53,15 +41,45 @@ def test2():
         reg4.assign((reg0 + reg3) + (reg1 + reg2))
 
         reg5 = QickReg()
-        reg5.assign(reg4 + reg4)
+        reg5.assign((reg1 + reg4) + (reg2 + time2))
 
     return code
+
+def test3():
+    code1 = QickCode(name='c1')
+    with QickContext(code1):
+        time0 = QickTime(10e-6)
+        time1 = QickTime(11e-6)
+        code1.trig(ch=0, state=True, time=time0)
+        code1.trig(ch=0, state=False, time=time1)
+
+    code2 = QickCode(name='c2')
+    with QickContext(code2):
+        time2 = QickTime(12e-6)
+        time3 = QickTime(13e-6)
+        code2.trig(ch=1, state=True, time=time2)
+        code2.trig(ch=1, state=False, time=time3)
+
+    return code1 + code2
+
+def test4():
+    return TrigPulse(ch=1, length=2e-6)
+
+def test5():
+    t1 = TrigPulse(ch=0, length=1e-6)
+    t2 = TrigPulse(ch=1, length=2e-6)
+    return t1 + t2
+
+def test6():
+    t1 = TrigPulse(ch=0, length=1e-6)
+    t2 = TrigPulse(ch=1, length=2e-6)
+    return t1 | t2
 
 if __name__ == '__main__':
     import logging
 
     nspyre_init_logger(log_level=logging.INFO)
 
-    with QickPulseCompiler(fake_soc=True) as qpc:
-        qpc.load(test2())
+    with QPC(fake_soc=True) as qpc:
+        qpc.run(test6())
         input('Press enter to exit\n')

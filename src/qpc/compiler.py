@@ -11,6 +11,7 @@ Date: 2024-08-16
 from __future__ import annotations
 from numbers import Number
 import logging
+from math import ceil, log10
 from pathlib import Path
 from typing import Optional, Iterable, Dict, Any, Union
 
@@ -55,7 +56,7 @@ class FakeSoC:
     def __getattr__(self, attr):
         return lambda x: int(x)
 
-class QickPulseCompiler:
+class QPC:
     """Runs a QICK program for tprocv2."""
     def __init__(self,
         iomap: Optional[QickIOMap] = None,
@@ -135,15 +136,18 @@ class QickPulseCompiler:
 
         return port_info
 
-    def _render_exp(self, exp: QickExpression, regno: int) -> Tuple[str, str]:
+    def _compile_exp(
+            self,
+            exp: QickExpression,
+            regno: int
+        ) -> Tuple[str, str]:
         """Create the assembly code that evaluates a QickExpression.
 
         Args:
-            exp: Expression to render.
+            exp: Expression to compile.
             regno: Number of lowest unused register.
 
         """
-
         # series of REG_WR instructions that go before this expression
         # to prepare the operands
         pre_asm = ''
@@ -151,7 +155,7 @@ class QickPulseCompiler:
         exp_asm = ''
 
         if isinstance(exp.left, QickExpression):
-            left_pre_asm, left_exp_asm = self._render_exp(exp=exp.left, regno=regno + 1)
+            left_pre_asm, left_exp_asm = self._compile_exp(exp=exp.left, regno=regno + 1)
             pre_asm += left_pre_asm
             pre_asm += f'REG_WR r{regno} op -op({left_exp_asm})\n'
             exp_asm += f'r{regno} '
@@ -164,7 +168,7 @@ class QickPulseCompiler:
         exp_asm += exp.operator
 
         if isinstance(exp.right, QickExpression):
-            right_pre_asm, right_exp_asm = self._render_exp(exp=exp.right, regno=regno + 1)
+            right_pre_asm, right_exp_asm = self._compile_exp(exp=exp.right, regno=regno + 1)
             pre_asm += right_pre_asm
             pre_asm += f'REG_WR r{regno} op -op({right_exp_asm})\n'
             exp_asm += f' r{regno}'
@@ -188,22 +192,32 @@ class QickPulseCompiler:
         """
         asm = code.asm
 
+        # add name header
+        if code.name is not None:
+            asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
+
         # calculate how many registers will be allocated for the QickExpression
         nregs = 0
         for qick_obj in code.kvp.values():
             if isinstance(qick_obj, QickReg) and qick_obj.reg is None:
                 nregs += 1
 
-        # render the QickExpression
+        # compile the QickExpression
         with QickContext(code=code):
             # make a copy since we'll be adding new elements
             for key, qick_obj in code.kvp.copy().items():
                 if isinstance(qick_obj, QickExpression):
-                    pre_asm, exp_asm = self._render_exp(exp=qick_obj, regno=regno + nregs)
+                    pre_asm, exp_asm = self._compile_exp(exp=qick_obj, regno=regno + nregs)
                     asm = asm.replace(key + 'pre_asm', pre_asm)
                     asm = asm.replace(key + 'exp_asm', exp_asm)
 
-        # render the rest of the non-code objects
+        # recursively compile the rest of the QickCode objects
+        for key, qick_obj in code.kvp.items():
+            if isinstance(qick_obj, QickCode):
+                sub_asm, labelno = self._compile(code=qick_obj, regno=regno + nregs, labelno=labelno)
+                asm = asm.replace(key, sub_asm)
+
+        # compile the rest of the non-code objects
         for key, qick_obj in code.kvp.items():
             if isinstance(qick_obj, QickIO):
                 asm = asm.replace(key, str(self.iomap.mappings[qick_obj.channel_type][qick_obj.channel]))
@@ -223,16 +237,6 @@ class QickPulseCompiler:
                 else:
                     asm = asm.replace(key, qick_obj.reg)
 
-        # recursively compile the rest of the QickCode objects
-        for key, qick_obj in code.kvp.items():
-            if isinstance(qick_obj, QickCode):
-                asm, labelno = self._compile(code=qick_obj, regno=regno, labelno=labelno)
-                asm = asm.replace(key, asm)
-
-        if '*' in asm:
-            raise RuntimeError(f'Internal error: some keys were not matched '
-                f'during compilation. Program:\n{asm}')
-
         return asm, labelno
 
     def compile(self, code: QickCode, start_reg: int = 0):
@@ -251,24 +255,44 @@ class QickPulseCompiler:
             labelno=0
         )
 
+        if '*' in asm:
+            raise RuntimeError(f'Internal error: some keys were not matched '
+                f'during compilation. Program:\n{asm}')
+
         return asm
 
-    def run(self, code: QickCode):
+    def run(
+        self,
+        code: Optional[QickCode] = None,
+        start_reg: Optional[int] = 0
+    ):
+        """Run the currently loaded assembly program, or load and run a new one.
+
+        Args:
+            code: If None, the program that was last loaded with load() will be run.
+                Otherwise this code will be compiled, loaded, and then run.
+            start_reg: See compile().
+
+        """
+        if code is not None:
+            asm = self.compile(code=code, start_reg=start_reg)
+            self.load(asm=asm)
+
         # start the program
         self.soc.tproc.start()
         _logger.debug('running rfsoc prog...')
 
-    def load(self, code: QickCode):
+    def load(self, asm: str):
         """Load the program and configure the tproc.
 
         Args:
-            code: The code block to load.
+            asm: Assembly code to load.
 
         """
-        # get the user program and remove indentation
-        asm = ''
-        for line in self.compile(code).split('\n'):
-            asm += line.lstrip() + '\n'
+        # remove indentation
+        new_asm = ''
+        for line in asm.split('\n'):
+            new_asm += line.lstrip() + '\n'
 
         # add a NOP to the beginning of the program
         setup_asm = 'NOP\n'
@@ -277,19 +301,20 @@ class QickPulseCompiler:
         # add an infinite loop to the end of the program
         teardown_asm = 'JUMP HERE\n'
         # add setup and teardown asm
-        asm = setup_asm + asm + teardown_asm
+        new_asm = setup_asm + new_asm + teardown_asm
 
         if self.print_prog:
             print('#################')
             print('#### Program ####')
             print('#################')
-            for i, line in enumerate(asm.splitlines()):
+            ndigits = ceil(log10(new_asm.count('\n')))
+            for i, line in enumerate(new_asm.splitlines()):
                 # add line numbers
-                print(f'{i+1:03}: {line}')
+                print(f'{i+1:0{str(ndigits)}}: {line}')
             print('#################\n')
 
         # assemble program
-        pmem, asm_bin = Assembler.str_asm2bin(asm)
+        pmem, asm_bin = Assembler.str_asm2bin(new_asm)
 
         # stop any previously running program
         self.soc.tproc.reset()
