@@ -31,8 +31,8 @@ else:
     local_soc = True
 from qick.tprocv2_assembler import Assembler
 
-from qpc.types import QickLabel, QickTime, QickFreq, QickReg, QickExpression
-from qpc.types import QickContext, QickCode
+from qpc.types import QickLabel, QickTime, QickFreq, QickReg
+from qpc.types import QickExpression, QickContext, QickCode
 from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ class QPC:
         if code.name is not None:
             asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
 
-        # calculate how many registers will be allocated for the QickExpression
+        # calculate how many registers will be allocated
         nregs = 0
         for qick_obj in code.kvp.values():
             if isinstance(qick_obj, QickReg) and qick_obj.reg is None:
@@ -212,10 +212,12 @@ class QPC:
                     asm = asm.replace(key + 'exp_asm', exp_asm)
 
         # recursively compile the rest of the QickCode objects
-        for key, qick_obj in code.kvp.items():
+        for key, qick_obj in code.kvp.copy().items():
             if isinstance(qick_obj, QickCode):
                 sub_asm, labelno = self._compile(code=qick_obj, regno=regno + nregs, labelno=labelno)
                 asm = asm.replace(key, sub_asm)
+                # get the keys from code block being inserted into this block
+                code.merge_kvp(qick_obj.kvp)
 
         # compile the rest of the non-code objects
         for key, qick_obj in code.kvp.items():

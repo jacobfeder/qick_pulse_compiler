@@ -63,7 +63,7 @@ class QickObject:
         """Set this object's context to new_context."""
         self.context = new_context
 
-class QickLabel:
+class QickLabel(QickObject):
     """Represents an assembly code label."""
     def __init__(self, prefix: str):
         """
@@ -71,6 +71,7 @@ class QickLabel:
             prefix: Label prefix.
 
         """
+        super().__init__()
         self.prefix = prefix
 
 class QickType(QickObject, ABC):
@@ -146,6 +147,20 @@ class QickConstType(QickType):
     def __radd__(self, other) -> QickConstType:
         return self.__add__(other)
 
+    def __mul__(self, other) -> QickConstType:
+        if isinstance(other, QickConstType):
+            if not self.typecastable(other):
+                raise TypeError(f'Cannot multiply these QickConstType because '
+                    'their types are incompatible.')
+            return self.qick_type()(val=self.val * other.val)
+        elif isinstance(other, Number):
+            return self.qick_type()(val=self.val * other)
+        else:
+            return NotImplemented
+
+    def __rmul__(self, other) -> QickConstType:
+        return self.__mul__(other)
+
 class QickTime(QickConstType):
     """Represents a time."""
     def typecastable(self, other: Union[QickType, Type]) -> bool:
@@ -198,6 +213,13 @@ class QickVarType(QickType):
 
     def __radd__(self, other) -> QickExpression:
         return self.__add__(other, swap=True)
+
+    def __mul__(self, other) -> QickConstType:
+        # TODO
+        return NotImplemented
+
+    def __rmul__(self, other) -> QickConstType:
+        return self.__mul__(other)
 
 class QickReg(QickVarType):
     """Represents a register in the tproc."""
@@ -257,9 +279,9 @@ class QickExpression(QickVarType):
     """Represents a mathematical equation containing QickType."""
     def __init__(
             self,
-            left: QickType,
+            left: Union[int, QickType],
             operator: str,
-            right: QickType,
+            right: Union[int, QickType],
         ):
         """
         Args:
@@ -272,7 +294,8 @@ class QickExpression(QickVarType):
 
         # make sure left and right have the same qick type
         try:
-            right = right.typecast(left)
+            if isinstance(right, QickType):
+                right = right.typecast(left)
         except TypeError:
             try:
                 left = left.typecast(right)
@@ -375,7 +398,8 @@ class QickCode:
     """
     def __init__(
             self,
-            offset: Optional[QickType] = None,
+            offset: Optional[Number, QickType] = None,
+            length: Optional[Number, QickType] = None,
             name: Optional[str] = None,
         ):
         """
@@ -393,10 +417,24 @@ class QickCode:
 
         with QickContext(code=self):
             # length of code block
-            self.length = QickTime(0)
+            if length is None:
+                self.length = QickTime(0)
+            elif isinstance(length, Number):
+                self.length = QickTime(length)
+            elif isinstance(length, QickType):
+                self.length = length
+            else:
+                raise ValueError('length has an invalid type')
 
-        # offset for all pulses in the block
-        self.offset = offset
+            # offset for all pulses in the block
+            if offset is None:
+                self.offset = QickReg(reg='s0')
+            elif isinstance(offset, Number):
+                self.offset = QickTime(offset)
+            elif isinstance(offset, QickType):
+                self.offset = offset
+            else:
+                raise ValueError('offset has an invalid type')
 
         self.name = name
 
@@ -428,6 +466,21 @@ class QickCode:
         else:
             return dict_key + subid
 
+    def merge_kvp(self, kvp: Dict):
+        """Merge the given key-value pairs into this code block's key-value
+        pairs.
+
+        Args:
+            kvp: Key-value pair dictionary.
+
+        """
+        for k, v in kvp.items():
+            if k in self.kvp and v != self.kvp[k]:
+                raise RuntimeError('Internal error merging key-value '
+                    'pairs. Key already exists with different value.')
+            else:
+                self.kvp[k] = v
+
     def deembed_io(self, io: Union[QickIODevice, QickIO, int]) -> Tuple:
         """Calculate the final offset relevant to the provided IO.
 
@@ -449,13 +502,8 @@ class QickCode:
             port = io
             port_offset = QickReg(reg='s0')
 
-        if self.offset is None:
-            code_offset = QickReg(reg='s0')
-        else:
-            code_offset = self.offset
-
         offset = QickEpochExpression(
-            left=code_offset,
+            left=self.offset,
             operator='+',
             right=port_offset
         )

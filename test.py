@@ -2,9 +2,10 @@ from numbers import Number
 
 from nspyre import nspyre_init_logger
 
-from qpc.types import QickCode, QickContext, QickReg, QickTime
-from qpc.pulse import Delay, TrigConst, TrigPulse, RFSquarePulse
 from qpc.compiler import QPC
+from qpc.loop import QickLoop
+from qpc.pulse import Delay, TrigConst, TrigPulse, RFSquarePulse
+from qpc.types import QickCode, QickContext, QickReg, QickTime
 
 def test1():
     code = QickCode()
@@ -85,11 +86,20 @@ def test8():
 
     return rf1 + rf2
 
+def test9():
+    t1 = TrigPulse(ch=0, length=3e-6, name='t1')
+    return QickLoop(code=t1, loops=5, inc_ref=True)
+
+def test10():
+    t1 = TrigPulse(ch=0, length=3e-6, name='t1')
+    t2 = TrigPulse(ch=0, length=5e-6, name='t2')
+    return QickLoop(code=t1 + t2, loops=5, inc_ref=True)
+
 if __name__ == '__main__':
     import logging
 
     nspyre_init_logger(log_level=logging.INFO)
 
     with QPC(fake_soc=True) as qpc:
-        qpc.run(test8())
+        qpc.run(test10())
         input('Press enter to exit\n')

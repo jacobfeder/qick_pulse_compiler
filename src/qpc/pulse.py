@@ -13,8 +13,7 @@ class Delay(QickCode):
             length: Length of the delay.
 
         """
-        super().__init__(*args, **kwargs)
-        self.length = length
+        super().__init__(*args, length=length, **kwargs)
 
 class TrigConst(QickCode):
     def __init__(
@@ -54,8 +53,7 @@ class TrigPulse(QickCode):
             invert: If true, turn the channel off, then on.
 
         """
-        super().__init__(*args, **kwargs)
-        self.length = length
+        super().__init__(*args, length=length, **kwargs)
 
         if invert:
             self.trig(ch=ch, state=False, time=0)
@@ -92,8 +90,7 @@ class RFSquarePulse(QickCode):
                 currently in out_usr_time.
 
         """
-        super().__init__(*args, **kwargs)
-        self.length = length
+        super().__init__(*args, length=length, **kwargs)
 
         self.rf_square_pulse(
             ch=ch,
