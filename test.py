@@ -93,7 +93,7 @@ def test9():
 def test10():
     t1 = TrigPulse(ch=0, length=3e-6, name='t1')
     t2 = TrigPulse(ch=0, length=5e-6, name='t2')
-    return QickLoop(code=t1 + t2, loops=5, inc_ref=True)
+    return QickLoop(code=t1 + t2, loops=5, inc_ref=True, name='loop')
 
 if __name__ == '__main__':
     import logging

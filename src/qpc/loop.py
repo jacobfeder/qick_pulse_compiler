@@ -29,9 +29,6 @@ class QickLoop(QickCode):
         """
         super().__init__(*args, **kwargs)
 
-        # make a copy so we don't modify the original code
-        code = deepcopy(code)
-
         with QickContext(code=self):
             if inc_ref:
                 super().__init__(length=0, **kwargs)
@@ -57,11 +54,11 @@ class QickLoop(QickCode):
 
             if loops is not None:
                 loop_reg.assign(0)
+                nloops_reg.assign(loops)
 
             self.asm += f'{start_loop_label}:\n'
 
             if loops is not None:
-                self.asm += f'REG_WR {nloops_reg} imm #{loops}\n'
                 self.asm += f'TEST -op({loop_reg} - {nloops_reg})\n'
                 self.asm += f'JUMP {end_loop_label} -if(NS)\n'
 
