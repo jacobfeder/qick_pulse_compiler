@@ -16,11 +16,14 @@ from qick import QickConfig
 
 from qpc.io import QickIO, QickIODevice
 
-# keep track of current context of the qick code being created
-qpc_context = []
+# keep track of current scope of the qick code being created
+qpc_scope = []
 
-class QickContext:
-    """QPC program context. QPC objects defined within this context will be
+# unique id counter for qpc objects
+qpc_id = 0
+
+class QickScope:
+    """QPC program scope. QPC objects defined within this scope will be
     associated with the code given in the constructor."""
     def __init__(
             self,
@@ -29,7 +32,7 @@ class QickContext:
         ):
         """
         Args:
-            code: QickObjects created within this context will be associated
+            code: QickObjects created within this scope will be associated
                 with this code block.
             soccfg: Qick firmware config.
 
@@ -38,34 +41,86 @@ class QickContext:
         self.soccfg = soccfg
 
     def __enter__(self):
-        qpc_context.append(self)
+        qpc_scope.append(self)
         return self
 
     def __exit__(self, *args):
-        qpc_context.pop()
+        qpc_scope.pop()
 
 class QickObject:
     """An object to be used with the QPC compiler."""
     def __init__(self):
-        self._set_current_context()
+        # assign unique id
+        global qpc_id
+        self.id = qpc_id
+        qpc_id += 1
+        self.connect_scope()
+
+    def connect_scope(self):
+        # connect object to a scope
+        if len(qpc_scope):
+            self.scope = qpc_scope[-1]
+        else:
+            # TODO warning no scope
+            self.scope = None
 
     def __str__(self) -> str:
-        if self.context.code is None:
-            raise RuntimeError(f'QickObject was never associated with a '
-                'QickCode block.')
-        else:
-            return self.context.code.key(self)
+        return self.key()
 
-    def _set_current_context(self):
-        if len(qpc_context):
-            self.context = qpc_context[-1]
-        else:
-            raise RuntimeError('Attempted to contextcast QickObject outside of '
-                'a QickContext.')
+    def _key(self) -> str:
+        return f'*{self.id}*'
 
-    def contextcast(self):
-        """Set this object's context to the current context."""
-        self._set_current_context()
+    def key(self, subid: Optional[str] = None) -> str:
+        """Get the key associated with this object, or create a new one
+        if it does not exist.
+
+        Args:
+            subid: A string representing some additional identifier within obj.
+
+        Returns:
+            A unique string representing this object.
+
+        """
+        key = self._key()
+
+        if self.scope is not None:
+            if key not in self.scope.code.kvp:
+                self.scope.code.kvp[key] = self
+
+        if subid is None:
+            return key
+        else:
+            return key + subid
+
+    def __deepcopy__(self, memo):
+        # references:
+        # https://stackoverflow.com/a/71125311
+        # https://stackoverflow.com/a/24621200
+
+        # store original scope
+        original_scope = self.scope
+
+        # prevent infinite recursion in call to deepcopy
+        this_deepcopy_method = self.__deepcopy__
+        self.__deepcopy__ = None
+
+        # delete scope so it doesn't get copied in following deepcopy()
+        del self.__dict__['scope']
+
+        # make the copy
+        clone = deepcopy(self, memo)
+
+        # restore scope
+        setattr(self, 'scope', original_scope)
+        # give clone a new scope
+        clone.connect_scope()
+
+        # restore __deepcopy__
+        self.__deepcopy__ = this_deepcopy_method
+        # bind to clone by types.MethodType
+        clone.__deepcopy__ = MethodType(this_deepcopy_method.__func__, clone)
+
+        return clone
 
 class QickLabel(QickObject):
     """Represents an assembly code label."""
@@ -277,7 +332,7 @@ class QickReg(QickVarType):
             value: The value to assign.
 
         """
-        self.context.code.asm += self._assign(value=value)
+        self.scope.code.asm += self._assign(value=value)
 
 class QickExpression(QickVarType):
     """Represents a mathematical equation containing QickType."""
@@ -316,19 +371,11 @@ class QickExpression(QickVarType):
         raise ValueError('QickExpression cannot be converted into a string '
             'key. Use pre_asm_key() and exp_asm_key().')
 
-    def contextcast(self):
-        """Set this object's context to the current context."""
-        super().contextcast()
-        if isinstance(self.left, QickExpression):
-            self.left.contextcast(new_context)
-        if isinstance(self.right, QickExpression):
-            self.right.contextcast(new_context)
-
     def pre_asm_key(self) -> str:
-        return self.context.code.key(obj=self, subid='pre_asm')
+        return self.key(subid='pre_asm')
 
     def exp_asm_key(self) -> str:
-        return self.context.code.key(obj=self, subid='exp_asm')
+        return self.key(subid='exp_asm')
 
     def typecast(self, other: Union[QickType, Type]) -> QickExpression:
         """Return self converted into the type of other."""
@@ -383,15 +430,15 @@ class QickEpochExpression(QickExpression):
 #             'key. Use start_key(), stop_key(), and step_key().')
 
 #     def start_key(self) -> str:
-#         return self.context.code.key(obj=self, subid='start')
+#         return self.key(subid='start')
 
 #     def stop_key(self) -> str:
-#         return self.context.code.key(obj=self, subid='stop')
+#         return self.key(subid='stop')
 
 #     def step_key(self) -> str:
-#         return self.context.code.key(obj=self, subid='step')
+#         return self.key(subid='step')
 
-class QickCode:
+class QickCode(QickObject):
     """Represents a segment of qick code. There are two components. The first
     is a string containing assembly code. The second is a key-value pair ("kvp")
     dictionary containing string keys and object values. In the assembly code,
@@ -414,15 +461,13 @@ class QickCode:
                 the code segment.
 
         """
+        super().__init__()
         # assembly code string
         self.asm = ''
         # key-value pairs
         self.kvp = {}
-        # other QickCode's that have references to this QickCode
-        # this is required in order to implement deepcopy()
-        self.refs = []
 
-        with QickContext(code=self):
+        with QickScope(code=self):
             # length of code block
             if length is None:
                 self.length = QickTime(0)
@@ -445,114 +490,22 @@ class QickCode:
 
         self.name = name
 
-    def __str__(self) -> str:
-        if len(qpc_context):
-            context = qpc_context[-1]
-            # record the fact that context.code contains a reference to this code
-            self.refs.append(context.code)
-            return context.code.key(self)
-        else:
-            raise RuntimeError('Attempted to get key of QickCode outside of '
-                'a QickContext.')
-
-    def _key(self, obj: Any) -> str:
-        return f'*{id(obj)}*'
-
-    def key(self, obj: Any, subid: Optional[str] = None) -> str:
-        """Get the key associated with the given object, or create a new one
-        if it does not exist.
-
-        Args:
-            obj: The object to be handled by the compiler.
-            subid: A string representing some additional identifier within obj.
-
-        Returns:
-            A unique string representing this object.
-
-        """
-        dict_key = self._key(obj)
-        if dict_key not in self.kvp:
-            self.kvp[dict_key] = obj
-
-        if subid is None:
-            return dict_key
-        else:
-            return dict_key + subid
-
-    def update_key(self, old_key: str):
+    def update_key(self, old_key: str, new_obj: QickType):
         """Update the given key in the assembly code and key-value pair dictionary.
 
         Args:
             old_key: The key that needs to be updated.
+            new_obj: The object that will take the place of the object pointed
+                to by old_key.
 
         """
-        # object associated with the key
-        qick_obj = self.kvp[old_key]
-        # get the new key associated with the object
-        new_key = self._key(qick_obj)
-        # update the key in the dictionary
         del self.kvp[old_key]
-        self.kvp[new_key] = qick_obj
+
+        new_key = new_obj._key()
+        self.kvp[new_key] = new_obj
+
         # replace all instances of the old key with the new key in the assembly code
         self.asm = self.asm.replace(old_key, new_key)
-
-    def _update_all_keys(self, old_kvp: Dict):
-        """ """
-        for old_key, qick_obj in old_kvp.copy().items():
-            if old_key in self.kvp:
-                self.update_key(old_key)
-
-        for ref in self.refs:
-            ref._update_all_keys(old_kvp=old_kvp)
-
-    def __deepcopy__(self, memo):
-        # references:
-        # https://stackoverflow.com/a/71125311
-        # https://stackoverflow.com/a/24621200
-
-        import pdb; pdb.set_trace()
-
-        # store the original references
-        old_refs = self.refs
-
-        # prevent infinite recursion in call to deepcopy
-        deepcopy_method = self.__deepcopy__
-        self.__deepcopy__ = None
-
-        # delete references so they don't get copied in deepcopy()
-        del self.__dict__['refs']
-
-        # make the copy
-        clone = deepcopy(self, memo)
-
-        # restore the refs
-        setattr(self, 'refs', old_refs)
-        # give clone a new array containing the old refs
-        setattr(clone, 'refs', old_refs.copy())
-
-        # restore __deepcopy__
-        self.__deepcopy__ = deepcopy_method
-        # bind to clone by types.MethodType
-        clone.__deepcopy__ = MethodType(deepcopy_method.__func__, clone)
-
-        clone._update_all_keys(self.kvp)
-
-        return clone
-
-    def merge_kvp(self, kvp: Dict):
-        """Merge the given key-value pairs into this code block's key-value
-        pairs.
-
-        Args:
-            kvp: Key-value pair dictionary.
-
-        """
-        for k, v in kvp.items():
-            if k in self.kvp and v != self.kvp[k]:
-                raise RuntimeError('Internal error merging key-value '
-                    'pairs. Key already exists with different value.')
-            else:
-                self.kvp[k] = v
 
     def deembed_io(self, io: Union[QickIODevice, QickIO, int]) -> Tuple:
         """Calculate the final offset relevant to the provided IO.
@@ -566,13 +519,10 @@ class QickCode:
 
         """
         if isinstance(io, QickIODevice):
-            port = self.key(io)
             port_offset = QickTime(io.total_offset())
         elif isinstance(io, QickIO):
-            port = self.key(io)
             port_offset = QickTime(io.offset)
         else:
-            port = io
             port_offset = QickReg(reg='s0')
 
         offset = QickEpochExpression(
@@ -581,7 +531,7 @@ class QickCode:
             right=port_offset
         )
 
-        return port, offset
+        return offset
 
     def trig(
             self,
@@ -599,10 +549,10 @@ class QickCode:
                 currently in out_usr_time.
 
         """
-        with QickContext(code=self):
-            port, offset = self.deembed_io(ch)
+        with QickScope(code=self):
+            offset = self.deembed_io(ch)
 
-            self.asm += f'// Setting trigger port {port} to {state}\n'
+            self.asm += f'// Setting trigger port {ch} to {state}\n'
             if time is not None:
                 if isinstance(time, Number):
                     time = QickTime(time)
@@ -613,9 +563,9 @@ class QickCode:
 
             # set the trig
             if state:
-                self.asm += f'TRIG set p{port}\n'
+                self.asm += f'TRIG set p{ch}\n'
             else:
-                self.asm += f'TRIG clr p{port}\n'
+                self.asm += f'TRIG clr p{ch}\n'
 
     def sig_gen_conf(self, outsel = 'product', mode = 'oneshot', stdysel='zero', phrst = 0) -> int:
         outsel_reg = {'product': 0, 'dds': 1, 'input': 2, 'zero': 3}[outsel]
@@ -650,10 +600,10 @@ class QickCode:
                 currently in out_usr_time.
 
         """
-        with QickContext(code=self):
-            port, offset = self.deembed_io(ch)
+        with QickScope(code=self):
+            offset = self.deembed_io(ch)
 
-            self.asm += f'// Pulsing RF port {port}\n'
+            self.asm += f'// Pulsing RF port {ch}\n'
 
             if time is not None:
                 if isinstance(time, Number):
@@ -664,7 +614,7 @@ class QickCode:
 
             if length is not None:
                 if isinstance(length, Number):
-                    length = QickLength(val=length, ch=port)
+                    length = QickLength(val=length, ch=ch)
                 # set the play time of the pulse
                 w_length = QickReg(reg='w_length')
                 w_length.assign(length)
@@ -683,7 +633,7 @@ class QickCode:
             w_conf = QickReg(reg='w_conf')
             w_conf.assign(self.sig_gen_conf(outsel='dds', mode='oneshot', stdysel='zero', phrst=0))
 
-            self.asm += f'WPORT_WR p{port} r_wave\n'
+            self.asm += f'WPORT_WR p{ch} r_wave\n'
 
     def add(self, code: QickCode):
         """Set another code block to run sequentially after this block.
@@ -692,33 +642,31 @@ class QickCode:
             code: Code to run after this code.
 
         """
-        # make a copy so we don't modify the original code
-        code = deepcopy(code)
+        with QickScope(code=self):
+            # make a copy so we don't modify the original code
+            code = deepcopy(code)
 
-        with QickContext(code=code):
-            # calculate the amount to offset all pulses in code
-            offset_reg = QickReg()
-            self.length.contextcast()
-            code.asm = offset_reg._assign(self.length) + code.asm
+            with QickScope(code=code):
+                # calculate the amount to offset all pulses in code
+                offset_reg = QickReg()
+                code.asm = offset_reg._assign(self.length) + code.asm
 
-            # find all instance of QickEpochExpression in kvp and offset
-            # them by offset_reg
-            for key, qick_obj in code.kvp.copy().items():
-                if isinstance(qick_obj, QickEpochExpression):
-                    code.kvp[key] = QickEpochExpression(
-                        left=offset_reg,
-                        operator='+',
-                        right=qick_obj,
-                    )
-                    code.update_key(key)
+                # find all instance of QickEpochExpression in kvp and offset
+                # them by offset_reg
+                for key, qick_obj in code.kvp.copy().items():
+                    if isinstance(qick_obj, QickEpochExpression):
+                        new_epoch = QickEpochExpression(
+                            left=offset_reg,
+                            operator='+',
+                            right=qick_obj,
+                        )
+                        code.update_key(key, new_epoch)
 
-        with QickContext(code=self):
+        with QickScope(code=self):
             self.length += code.length
             self.asm += str(code)
 
-        if self.name is None and code.name is not None:
-            self.name = code.name
-        elif self.name is not None and code.name is not None:
+        if self.name is not None and code.name is not None:
             self.name = f'({self.name} + {code.name})'
 
     def parallel(self, code: QickCode):
@@ -729,16 +677,14 @@ class QickCode:
             code: Code to run in parallel with this code.
 
         """
-        # make a copy so we don't modify the original code
-        code = deepcopy(code)
+        with QickScope(code=self):
+            # make a copy so we don't modify the original code
+            code = deepcopy(code)
 
-        with QickContext(code=self):
             self.length = code.length
             self.asm += str(code)
 
-        if self.name is None and code.name is not None:
-            self.name = code.name
-        elif self.name is not None and code.name is not None:
+        if self.name is not None and code.name is not None:
             self.name = f'({self.name} | {code.name})'
 
     def __add__(self, code: QickCode):

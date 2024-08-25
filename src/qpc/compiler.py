@@ -9,9 +9,10 @@ Date: 2024-08-16
 """
 
 from __future__ import annotations
-from numbers import Number
+from copy import deepcopy
 import logging
 from math import ceil, log10
+from numbers import Number
 from pathlib import Path
 from typing import Optional, Iterable, Dict, Any, Union
 
@@ -32,7 +33,7 @@ else:
 from qick.tprocv2_assembler import Assembler
 
 from qpc.types import QickType, QickLabel, QickTime, QickFreq, QickReg
-from qpc.types import QickExpression, QickContext, QickCode
+from qpc.types import QickExpression, QickScope, QickCode
 from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
@@ -175,7 +176,7 @@ class QPC:
                 nregs += 1
 
         # compile the QickExpression
-        with QickContext(code=code):
+        with QickScope(code=code):
             # make a copy since we'll be adding new elements
             for key, qick_obj in code.kvp.copy().items():
                 if isinstance(qick_obj, QickExpression):
@@ -188,15 +189,11 @@ class QPC:
             if isinstance(qick_obj, QickCode):
                 sub_asm, labelno = self._compile(code=qick_obj, regno=regno + nregs, labelno=labelno)
                 asm = asm.replace(key, sub_asm)
-                # TODO is this necessary? it modifies code
-                # get the keys from code block being inserted into this block
-                code.merge_kvp(qick_obj.kvp)
 
         # compile the rest of the non-code objects
         for key, qick_obj in code.kvp.items():
-            if isinstance(qick_obj, QickType):
-                if key != qick_obj.context.code._key(qick_obj):
-                    raise RuntimeError('Internal error: key does not match object')
+            if key != qick_obj._key():
+                raise RuntimeError('Internal error: key does not match object')
 
             if isinstance(qick_obj, QickIO):
                 asm = asm.replace(key, str(self.iomap.mappings[qick_obj.channel_type][qick_obj.channel]))
@@ -228,6 +225,11 @@ class QPC:
                 user for global variables.
 
         """
+
+        # TODO
+        # # make a copy so we don't modify the original code
+        # code = deepcopy(code)
+
         asm, _ = self._compile(
             code=code,
             regno=start_reg,

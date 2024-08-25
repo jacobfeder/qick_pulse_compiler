@@ -5,11 +5,11 @@ from nspyre import nspyre_init_logger
 from qpc.compiler import QPC
 from qpc.loop import QickLoop
 from qpc.pulse import Delay, TrigConst, TrigPulse, RFSquarePulse
-from qpc.types import QickCode, QickContext, QickReg, QickTime
+from qpc.types import QickCode, QickScope, QickReg, QickTime
 
 def test1():
     code = QickCode()
-    with QickContext(code):
+    with QickScope(code):
         time1 = QickTime(1e-6)
         time2 = QickTime(2e-6)
 
@@ -23,7 +23,7 @@ def test1():
 
 def test2():
     code = QickCode()
-    with QickContext(code):
+    with QickScope(code):
         time0 = QickTime(0e-6)
         time1 = QickTime(1e-6)
         time2 = QickTime(2e-6)
@@ -47,61 +47,82 @@ def test2():
     return code
 
 def test3():
+    code = QickCode(name='c1')
+    with QickScope(code):
+        time10 = QickTime(10e-6)
+        time11 = QickTime(11e-6)
+        code.trig(ch=0, state=True, time=time10)
+        code.trig(ch=0, state=False, time=time11)
+
+    return code
+
+def test4():
     code1 = QickCode(name='c1')
-    with QickContext(code1):
-        time0 = QickTime(10e-6)
-        time1 = QickTime(11e-6)
-        code1.trig(ch=0, state=True, time=time0)
-        code1.trig(ch=0, state=False, time=time1)
+    with QickScope(code1):
+        time10 = QickTime(10e-6)
+        time11 = QickTime(11e-6)
+        code1.trig(ch=0, state=True, time=time10)
+        code1.trig(ch=0, state=False, time=time11)
 
     code2 = QickCode(name='c2')
-    with QickContext(code2):
-        time2 = QickTime(12e-6)
-        time3 = QickTime(13e-6)
-        code2.trig(ch=1, state=True, time=time2)
-        code2.trig(ch=1, state=False, time=time3)
+    with QickScope(code2):
+        time12 = QickTime(12e-6)
+        time13 = QickTime(13e-6)
+        code2.trig(ch=1, state=True, time=time12)
+        code2.trig(ch=1, state=False, time=time13)
 
     return code1 + code2
 
-def test4():
-    return TrigPulse(ch=1, length=2e-6)
-
 def test5():
-    t1 = TrigPulse(ch=0, length=1e-6, name='t1')
-    t2 = TrigPulse(ch=1, length=2e-6, name='t2')
-    return t1 + t2
+    return TrigPulse(ch=1, length=2e-6)
 
 def test6():
     t1 = TrigPulse(ch=0, length=1e-6, name='t1')
     t2 = TrigPulse(ch=1, length=2e-6, name='t2')
-    return t1 | t2
+    return t1 + t2
 
 def test7():
+    t1 = TrigPulse(ch=0, length=1e-6, name='t1')
+    t2 = TrigPulse(ch=1, length=2e-6, name='t2')
+    return t1 | t2
+
+def test8():
     rf1 = RFSquarePulse(ch=0, length=1e-6, freq=100e6, amp=1_000)
     return rf1
 
-def test8():
+def test9():
     rf1 = RFSquarePulse(ch=0, length=1e-6, freq=100e6, amp=1_000, name='rf1')
     rf2 = RFSquarePulse(ch=1, length=2e-6, freq=None, amp=None, time=5e-6, name='rf2')
 
     return rf1 + rf2
 
-def test9():
+def test10():
     t1 = TrigPulse(ch=0, length=3e-6, name='t1')
     return QickLoop(code=t1, loops=5, inc_ref=True)
 
-def test10():
+def test11():
     t1 = TrigPulse(ch=0, length=3e-6, name='t1')
     t2 = TrigPulse(ch=0, length=5e-6, name='t2')
     return QickLoop(code=t1 + t2, loops=5, inc_ref=True, name='loop')
 
-def test11():
+def test12():
     code = QickCode()
-    with QickContext(code):
+    with QickScope(code):
         len_reg = QickReg()
         len_reg.assign(QickTime(3e-6))
         t1 = TrigPulse(ch=0, length=len_reg, name='t1')
         code.add(t1)
+    return code
+
+def test13():
+    code = QickCode()
+    with QickScope(code):
+        len_reg = QickReg()
+        len_reg.assign(QickTime(3e-6))
+        t1 = TrigPulse(ch=0, length=len_reg, name='t1')
+        t2 = TrigPulse(ch=0, length=5e-6, name='t2')
+        code.add(t1)
+        code.add(t2)
     return code
 
 if __name__ == '__main__':
@@ -110,5 +131,5 @@ if __name__ == '__main__':
     nspyre_init_logger(log_level=logging.INFO)
 
     with QPC(fake_soc=True) as qpc:
-        qpc.run(test11())
+        qpc.run(test13())
         input('Press enter to exit\n')

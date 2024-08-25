@@ -4,7 +4,7 @@ from typing import Union
 from typing import List
 from numbers import Number
 
-from qpc.types import QickContext, QickLabel, QickVarType, QickReg
+from qpc.types import QickScope, QickLabel, QickVarType, QickReg
 from qpc.types import QickCode
 
 class QickLoop(QickCode):
@@ -29,7 +29,7 @@ class QickLoop(QickCode):
         """
         super().__init__(*args, **kwargs)
 
-        with QickContext(code=self):
+        with QickScope(code=self):
             # make a copy so we don't modify the original code
             code = deepcopy(code)
 
