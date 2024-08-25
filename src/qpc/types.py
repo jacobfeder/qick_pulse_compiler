@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from inspect import isclass
 from numbers import Number
+from types import MethodType
 from typing import Optional, Union, Type
 
 from qick import QickConfig
@@ -46,11 +47,7 @@ class QickContext:
 class QickObject:
     """An object to be used with the QPC compiler."""
     def __init__(self):
-        if len(qpc_context):
-            self.context = qpc_context[-1]
-        else:
-            raise RuntimeError('Attempted to create QickObject outside of '
-                'a QickContext.')
+        self._set_current_context()
 
     def __str__(self) -> str:
         if self.context.code is None:
@@ -59,9 +56,16 @@ class QickObject:
         else:
             return self.context.code.key(self)
 
-    def contextcast(self, new_context: QickContext):
-        """Set this object's context to new_context."""
-        self.context = new_context
+    def _set_current_context(self):
+        if len(qpc_context):
+            self.context = qpc_context[-1]
+        else:
+            raise RuntimeError('Attempted to contextcast QickObject outside of '
+                'a QickContext.')
+
+    def contextcast(self):
+        """Set this object's context to the current context."""
+        self._set_current_context()
 
 class QickLabel(QickObject):
     """Represents an assembly code label."""
@@ -180,7 +184,7 @@ class QickLength(QickTime):
         super().__init__(val=val)
         self.ch = ch
         # TODO need to integrate type checking for correct channel number
-        # when adding regs
+        # when doing ops on regs
 
 class QickFreq(QickConstType):
     """Represents a frequency."""
@@ -312,9 +316,9 @@ class QickExpression(QickVarType):
         raise ValueError('QickExpression cannot be converted into a string '
             'key. Use pre_asm_key() and exp_asm_key().')
 
-    def contextcast(self, new_context: QickContext):
-        """Set this object's context to new_context."""
-        self.context = new_context
+    def contextcast(self):
+        """Set this object's context to the current context."""
+        super().contextcast()
         if isinstance(self.left, QickExpression):
             self.left.contextcast(new_context)
         if isinstance(self.right, QickExpression):
@@ -414,6 +418,9 @@ class QickCode:
         self.asm = ''
         # key-value pairs
         self.kvp = {}
+        # other QickCode's that have references to this QickCode
+        # this is required in order to implement deepcopy()
+        self.refs = []
 
         with QickContext(code=self):
             # length of code block
@@ -440,10 +447,16 @@ class QickCode:
 
     def __str__(self) -> str:
         if len(qpc_context):
-            return qpc_context[-1].code.key(self)
+            context = qpc_context[-1]
+            # record the fact that context.code contains a reference to this code
+            self.refs.append(context.code)
+            return context.code.key(self)
         else:
             raise RuntimeError('Attempted to get key of QickCode outside of '
                 'a QickContext.')
+
+    def _key(self, obj: Any) -> str:
+        return f'*{id(obj)}*'
 
     def key(self, obj: Any, subid: Optional[str] = None) -> str:
         """Get the key associated with the given object, or create a new one
@@ -457,7 +470,7 @@ class QickCode:
             A unique string representing this object.
 
         """
-        dict_key = f'*{id(obj)}*'
+        dict_key = self._key(obj)
         if dict_key not in self.kvp:
             self.kvp[dict_key] = obj
 
@@ -465,6 +478,66 @@ class QickCode:
             return dict_key
         else:
             return dict_key + subid
+
+    def update_key(self, old_key: str):
+        """Update the given key in the assembly code and key-value pair dictionary.
+
+        Args:
+            old_key: The key that needs to be updated.
+
+        """
+        # object associated with the key
+        qick_obj = self.kvp[old_key]
+        # get the new key associated with the object
+        new_key = self._key(qick_obj)
+        # update the key in the dictionary
+        del self.kvp[old_key]
+        self.kvp[new_key] = qick_obj
+        # replace all instances of the old key with the new key in the assembly code
+        self.asm = self.asm.replace(old_key, new_key)
+
+    def _update_all_keys(self, old_kvp: Dict):
+        """ """
+        for old_key, qick_obj in old_kvp.copy().items():
+            if old_key in self.kvp:
+                self.update_key(old_key)
+
+        for ref in self.refs:
+            ref._update_all_keys(old_kvp=old_kvp)
+
+    def __deepcopy__(self, memo):
+        # references:
+        # https://stackoverflow.com/a/71125311
+        # https://stackoverflow.com/a/24621200
+
+        import pdb; pdb.set_trace()
+
+        # store the original references
+        old_refs = self.refs
+
+        # prevent infinite recursion in call to deepcopy
+        deepcopy_method = self.__deepcopy__
+        self.__deepcopy__ = None
+
+        # delete references so they don't get copied in deepcopy()
+        del self.__dict__['refs']
+
+        # make the copy
+        clone = deepcopy(self, memo)
+
+        # restore the refs
+        setattr(self, 'refs', old_refs)
+        # give clone a new array containing the old refs
+        setattr(clone, 'refs', old_refs.copy())
+
+        # restore __deepcopy__
+        self.__deepcopy__ = deepcopy_method
+        # bind to clone by types.MethodType
+        clone.__deepcopy__ = MethodType(deepcopy_method.__func__, clone)
+
+        clone._update_all_keys(self.kvp)
+
+        return clone
 
     def merge_kvp(self, kvp: Dict):
         """Merge the given key-value pairs into this code block's key-value
@@ -625,17 +698,19 @@ class QickCode:
         with QickContext(code=code):
             # calculate the amount to offset all pulses in code
             offset_reg = QickReg()
+            self.length.contextcast()
             code.asm = offset_reg._assign(self.length) + code.asm
 
             # find all instance of QickEpochExpression in kvp and offset
             # them by offset_reg
-            for key, qick_obj in code.kvp.items():
+            for key, qick_obj in code.kvp.copy().items():
                 if isinstance(qick_obj, QickEpochExpression):
                     code.kvp[key] = QickEpochExpression(
                         left=offset_reg,
                         operator='+',
                         right=qick_obj,
                     )
+                    code.update_key(key)
 
         with QickContext(code=self):
             self.length += code.length

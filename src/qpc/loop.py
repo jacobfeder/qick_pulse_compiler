@@ -30,6 +30,9 @@ class QickLoop(QickCode):
         super().__init__(*args, **kwargs)
 
         with QickContext(code=self):
+            # make a copy so we don't modify the original code
+            code = deepcopy(code)
+
             if inc_ref:
                 super().__init__(length=0, **kwargs)
             elif isinstance(code.length, QickVarType):

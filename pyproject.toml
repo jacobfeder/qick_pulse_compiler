@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "qpc"
 version = "0.1"
-description = "Qick Pulse Compiler (QPC) is a high-level python interface to generate pulse programs for the Quantum Instrumentation Control Kit."
+description = "Qick Pulse Compiler (QPC) is a high-level python interface to generate pulse programs for the Quantum Instrumentation Control Kit (QICK)."
 authors = [
 	"Jacob Feder <jfed@uchicago.edu>",
 ]

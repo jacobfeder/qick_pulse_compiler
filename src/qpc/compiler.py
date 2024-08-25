@@ -31,7 +31,7 @@ else:
     local_soc = True
 from qick.tprocv2_assembler import Assembler
 
-from qpc.types import QickLabel, QickTime, QickFreq, QickReg
+from qpc.types import QickType, QickLabel, QickTime, QickFreq, QickReg
 from qpc.types import QickExpression, QickContext, QickCode
 from qpc.io import QickIO, QickIODevice
 
@@ -107,34 +107,6 @@ class QPC:
 
     def __exit__(self, *args):
         self.stop()
-
-    def port(io: [QickIODevice, QickIO]) -> Union[int, Tuple]:
-        """Return the port info associated with the given object.
-
-        Args:
-            io: QickIODevice or QickIO to return the port number of.
-
-        """
-        if isinstance(io, QickIODevice):
-            channel_type = io.io.channel_type
-            channel = io.io.channel
-        elif isinstance(io, QickIO):
-            channel_type = io.channel_type
-            channel = io.channel
-        else:
-            raise ValueError('io must be a QickIODevice or QickIO but got '
-                f'[{io}]')
-
-        try:
-            port_info = self.iomap.mappings[channel_type][channel]
-        except KeyError as err:
-            raise ValueError(f'iomap does not contain port [{channel}].') from err
-
-        if port_info not in self.iomap.ports[device.io.channel_type]:
-            raise ValueError(f'The port [{port_info}] associated with the'
-                'given device is not a valid port for the board.')
-
-        return port_info
 
     def _compile_exp(
             self,
@@ -216,11 +188,16 @@ class QPC:
             if isinstance(qick_obj, QickCode):
                 sub_asm, labelno = self._compile(code=qick_obj, regno=regno + nregs, labelno=labelno)
                 asm = asm.replace(key, sub_asm)
+                # TODO is this necessary? it modifies code
                 # get the keys from code block being inserted into this block
                 code.merge_kvp(qick_obj.kvp)
 
         # compile the rest of the non-code objects
         for key, qick_obj in code.kvp.items():
+            if isinstance(qick_obj, QickType):
+                if key != qick_obj.context.code._key(qick_obj):
+                    raise RuntimeError('Internal error: key does not match object')
+
             if isinstance(qick_obj, QickIO):
                 asm = asm.replace(key, str(self.iomap.mappings[qick_obj.channel_type][qick_obj.channel]))
             elif isinstance(qick_obj, QickIODevice):
