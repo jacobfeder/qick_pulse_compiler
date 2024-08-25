@@ -60,7 +60,7 @@ class FakeSoC:
 class QPC:
     """Runs a QICK program for tprocv2."""
     def __init__(self,
-        iomap: Optional[QickIOMap] = None,
+        iomap: QickIOMap,
         ns_addr: str = 'localhost',
         ns_port: int = 8000,
         soc_proxy: str = 'rfsoc',
@@ -204,11 +204,7 @@ class QPC:
             if key != qick_obj._key():
                 raise RuntimeError('Internal error: key does not match object')
 
-            if isinstance(qick_obj, QickIO):
-                asm = asm.replace(key, str(self.iomap.mappings[qick_obj.channel_type][qick_obj.channel]))
-            elif isinstance(qick_obj, QickIODevice):
-                asm = asm.replace(key, str(self.iomap.mappings[qick_obj.io.channel_type][qick_obj.io.channel]))
-            elif isinstance(qick_obj, QickTime):
+            if isinstance(qick_obj, QickTime):
                 asm = asm.replace(key, str(self.soc.us2cycles(qick_obj.val * 1e6)))
             elif isinstance(qick_obj, QickLabel):
                 asm = asm.replace(key, f'{qick_obj.prefix}_{labelno}')
@@ -223,12 +219,11 @@ class QPC:
                     asm = asm.replace(key, qick_obj.reg)
 
         # substitute port names for numbers
-        if self.iomap is not None:
-            for port_type, port_mapping in self.iomap.mappings.items():
-                # port name is a string
-                # port is one of the namedtuple types from io.py
-                for port_name, port in self.iomap.mappings['trig'].items():
-                    asm = asm.replace(f'*{port_name}*', str(port.port))
+        for port_type, port_mapping in self.iomap.mappings.items():
+            # port name is a string
+            # port is one of the namedtuple types from io.py
+            for port_name, port in self.iomap.mappings['trig'].items():
+                asm = asm.replace(f'*{port_name}*', str(port.port))
 
         return asm, labelno
 
@@ -326,27 +321,26 @@ class QPC:
 
     def off_prog(self) -> QickCode:
         """A program that outputs 0's on all ports."""
-        # TODO
-        prog = QickCode(length=0)
 
-        # write 0 waveform into all WPORTs
-        for p in self.iomap.dac_ports():
-            prog.rf_square_pulse(ch=p, time=0, length=1e-6, freq=100e6, amp=0)
+        off_code = QickCode()
+        with QickScope(off_code):
+            # disable all trig ports
+            for p in self.iomap.trigger_ports():
+                off_code.trig(ch=p, state=False, time=0)
 
-        # disable all DPORTs
-        prog.asm += '// write 0 into all DPORTs\n'
-        prog.asm += 'REG_WR r0 imm #0\n'
-        for port in self.iomap.data_ports():
-            prog.asm += f'DPORT_WR p{port} reg r0\n'
+            # write 0 waveform into all WPORTs
+            for p in self.iomap.dac_ports():
+                off_code.rf_square_pulse(ch=p, length=1e-6, freq=100e6, amp=0, time=0)
 
-        # disable all trig ports
-        for port in self.iomap.trigger_ports():
-            prog.trig(ch=port, state=False, time=0)
+            # disable all DPORTs
+            off_code.asm += '// write 0 into all DPORTs\n'
+            off_code.asm += 'REG_WR r0 imm #0\n'
+            for port in self.iomap.data_ports():
+                off_code.asm += f'DPORT_WR p{port} reg r0\n'
 
-        return prog
+        return off_code
 
     def stop(self):
         """Upload a program that outputs 0's on all ports."""
-        # TODO
-        # self.load(self.off_prog())
+        self.run(self.off_prog())
         self.soc.tproc.start()

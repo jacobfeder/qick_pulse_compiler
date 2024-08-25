@@ -89,20 +89,20 @@ class QickIOMap:
 
     def trigger_ports(self) -> List:
         """Return a list of all unique trigger ports."""
-        self._ports(self.mappings['trig'])
+        return self._ports(self.mappings['trig'])
 
     def data_ports(self) -> List:
         """Return a list of all unique data ports."""
-        self._ports(self.mappings['data'])
+        return self._ports(self.mappings['data'])
 
     def dac_ports(self) -> List:
         """Return a list of all unique dac ports."""
-        self._ports(self.mappings['dac'])
+        return self._ports(self.mappings['dac'])
 
     def adc_ports(self) -> List:
         """Return a list of all unique adc ports."""
-        self._ports(self.mappings['adc'])
+        return self._ports(self.mappings['adc'])
 
     def tt_ports(self) -> List:
         """Return a list of all unique time tagger ports."""
-        self._ports(self.mappings['tt'])
+        return self._ports(self.mappings['tt'])
