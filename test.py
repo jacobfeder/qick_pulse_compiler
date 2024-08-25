@@ -120,7 +120,7 @@ def test13():
         len_reg = QickReg()
         len_reg.assign(QickTime(3e-6))
         t1 = TrigPulse(ch=0, length=len_reg, name='t1')
-        t2 = TrigPulse(ch=0, length=5e-6, name='t2')
+        t2 = TrigPulse(ch=1, length=5e-6, name='t2')
         code.add(t1)
         code.add(t2)
     return code

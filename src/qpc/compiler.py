@@ -234,22 +234,26 @@ class QPC:
                 user for global variables.
 
         """
+        wrapper_code = QickCode()
+        with QickScope(code=wrapper_code):
+            # make a copy so we don't modify the original code
+            code = deepcopy(code)
 
-        # TODO
-        # # make a copy so we don't modify the original code
-        # code = deepcopy(code)
+            # wrap it
+            wrapper_code.asm += str(code)
 
-        asm, _ = self._compile(
-            code=code,
-            regno=start_reg,
-            labelno=0
-        )
+            # compile!
+            asm, _ = self._compile(
+                code=wrapper_code,
+                regno=start_reg,
+                labelno=0
+            )
 
-        if '*' in asm:
-            raise RuntimeError(f'Internal error: some keys were not matched '
-                f'during compilation. Program:\n{asm}')
+            if '*' in asm:
+                raise RuntimeError(f'Internal error: some keys were not matched '
+                    f'during compilation. Program:\n{asm}')
 
-        return asm
+            return asm
 
     def run(
         self,

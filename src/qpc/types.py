@@ -54,15 +54,14 @@ class QickObject:
         global qpc_id
         self.id = qpc_id
         qpc_id += 1
-        self.connect_scope()
+        self._connect_scope()
 
-    def connect_scope(self):
-        # connect object to a scope
+    def _connect_scope(self):
+        """Connect object to the local scope"""
         if len(qpc_scope):
             self.scope = qpc_scope[-1]
         else:
-            # TODO warning no scope
-            self.scope = None
+            raise RuntimeError('Cannot create a QickObject outside of a QickScope.')
 
     def __str__(self) -> str:
         return self.key()
@@ -113,7 +112,7 @@ class QickObject:
         # restore scope
         setattr(self, 'scope', original_scope)
         # give clone a new scope
-        clone.connect_scope()
+        clone._connect_scope()
 
         # restore __deepcopy__
         self.__deepcopy__ = this_deepcopy_method
@@ -489,6 +488,13 @@ class QickCode(QickObject):
                 raise ValueError('offset has an invalid type')
 
         self.name = name
+
+    def _connect_scope(self):
+        """Connect object to the local scope"""
+        if len(qpc_scope):
+            self.scope = qpc_scope[-1]
+        else:
+            self.scope = None
 
     def update_key(self, old_key: str, new_obj: QickType):
         """Update the given key in the assembly code and key-value pair dictionary.
