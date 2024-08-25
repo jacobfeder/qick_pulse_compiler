@@ -1,5 +1,5 @@
 """Fundamental types to be used in generating pusle programs that can be
-compiled using the QickPulseCompiler.
+compiled using the Qick Pulse Compiler.
 
 Author: Jacob Feder
 Date: 2024-08-16
@@ -49,11 +49,18 @@ class QickScope:
 
 class QickObject:
     """An object to be used with the QPC compiler."""
-    def __init__(self):
+    def __init__(self, scope_required: bool = True):
+        """
+
+        Args:
+            scope_required: If True, require this object to have a scope.
+
+        """
         # assign unique id
         global qpc_id
         self.id = qpc_id
         qpc_id += 1
+        self.scope_required = scope_required
         self._connect_scope()
 
     def _connect_scope(self):
@@ -61,7 +68,10 @@ class QickObject:
         if len(qpc_scope):
             self.scope = qpc_scope[-1]
         else:
-            raise RuntimeError('Cannot create a QickObject outside of a QickScope.')
+            if self.scope_required:
+                raise RuntimeError('Cannot create a QickObject outside of a QickScope.')
+            else:
+                self.scope = None
 
     def __str__(self) -> str:
         return self.key()
@@ -234,9 +244,8 @@ class QickEpoch(QickTime):
 
 class QickLength(QickTime):
     """Represents the length of a pulse."""
-    def __init__(self, val: Number, ch: int):
+    def __init__(self, val: Number):
         super().__init__(val=val)
-        self.ch = ch
         # TODO need to integrate type checking for correct channel number
         # when doing ops on regs
 
@@ -460,7 +469,7 @@ class QickCode(QickObject):
                 the code segment.
 
         """
-        super().__init__()
+        super().__init__(scope_required=False)
         # assembly code string
         self.asm = ''
         # key-value pairs
@@ -488,13 +497,6 @@ class QickCode(QickObject):
                 raise ValueError('offset has an invalid type')
 
         self.name = name
-
-    def _connect_scope(self):
-        """Connect object to the local scope"""
-        if len(qpc_scope):
-            self.scope = qpc_scope[-1]
-        else:
-            self.scope = None
 
     def update_key(self, old_key: str, new_obj: QickType):
         """Update the given key in the assembly code and key-value pair dictionary.
@@ -526,10 +528,15 @@ class QickCode(QickObject):
         """
         if isinstance(io, QickIODevice):
             port_offset = QickTime(io.total_offset())
+            port = io.io.key()
         elif isinstance(io, QickIO):
             port_offset = QickTime(io.offset)
-        else:
+            port = io.key()
+        elif isinstance(io, int):
             port_offset = QickReg(reg='s0')
+            port = io
+        else:
+            raise ValueError('io has invalid type.')
 
         offset = QickEpochExpression(
             left=self.offset,
@@ -537,7 +544,7 @@ class QickCode(QickObject):
             right=port_offset
         )
 
-        return offset
+        return port, offset
 
     def trig(
             self,
@@ -556,9 +563,9 @@ class QickCode(QickObject):
 
         """
         with QickScope(code=self):
-            offset = self.deembed_io(ch)
+            port, offset = self.deembed_io(ch)
 
-            self.asm += f'// Setting trigger port {ch} to {state}\n'
+            self.asm += f'// Setting trigger port {port} to {state}\n'
             if time is not None:
                 if isinstance(time, Number):
                     time = QickTime(time)
@@ -569,9 +576,9 @@ class QickCode(QickObject):
 
             # set the trig
             if state:
-                self.asm += f'TRIG set p{ch}\n'
+                self.asm += f'TRIG set p{port}\n'
             else:
-                self.asm += f'TRIG clr p{ch}\n'
+                self.asm += f'TRIG clr p{port}\n'
 
     def sig_gen_conf(self, outsel = 'product', mode = 'oneshot', stdysel='zero', phrst = 0) -> int:
         outsel_reg = {'product': 0, 'dds': 1, 'input': 2, 'zero': 3}[outsel]
@@ -607,9 +614,9 @@ class QickCode(QickObject):
 
         """
         with QickScope(code=self):
-            offset = self.deembed_io(ch)
+            port, offset = self.deembed_io(ch)
 
-            self.asm += f'// Pulsing RF port {ch}\n'
+            self.asm += f'// Pulsing RF port {port}\n'
 
             if time is not None:
                 if isinstance(time, Number):
@@ -620,7 +627,7 @@ class QickCode(QickObject):
 
             if length is not None:
                 if isinstance(length, Number):
-                    length = QickLength(val=length, ch=ch)
+                    length = QickLength(val=length)
                 # set the play time of the pulse
                 w_length = QickReg(reg='w_length')
                 w_length.assign(length)
@@ -639,7 +646,7 @@ class QickCode(QickObject):
             w_conf = QickReg(reg='w_conf')
             w_conf.assign(self.sig_gen_conf(outsel='dds', mode='oneshot', stdysel='zero', phrst=0))
 
-            self.asm += f'WPORT_WR p{ch} r_wave\n'
+            self.asm += f'WPORT_WR p{port} r_wave\n'
 
     def add(self, code: QickCode):
         """Set another code block to run sequentially after this block.

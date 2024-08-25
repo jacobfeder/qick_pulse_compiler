@@ -29,6 +29,9 @@ class QickIO:
         self.channel = channel
         self.offset = offset
 
+    def key(self):
+        return f'*{self.channel}*'
+
 class QickIODevice:
     """Represents a device connected to an RFSoC input / output."""
     def __init__(self, io: QickIO, offset: Number):

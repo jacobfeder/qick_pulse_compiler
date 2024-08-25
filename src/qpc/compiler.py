@@ -222,6 +222,14 @@ class QPC:
                 else:
                     asm = asm.replace(key, qick_obj.reg)
 
+        # substitute port names for numbers
+        if self.iomap is not None:
+            for port_type, port_mapping in self.iomap.mappings.items():
+                # port name is a string
+                # port is one of the namedtuple types from io.py
+                for port_name, port in self.iomap.mappings['trig'].items():
+                    asm = asm.replace(f'*{port_name}*', str(port.port))
+
         return asm, labelno
 
     def compile(self, code: QickCode, start_reg: int = 0):

@@ -1,11 +1,11 @@
-from io import TriggerPort
-from io import DataPort
-from io import DACPort
-from io import ADCPort
-from io import TTPort
-from io import QickIOMap
+from .io import TriggerPort
+from .io import DataPort
+from .io import DACPort
+from .io import ADCPort
+from .io import TTPort
+from .io import QickIOMap
 
-qick_spin_4by2 = QickIOMap(
+qick_spin_4x2 = QickIOMap(
     trigger_ports_mapping = {
         'PMOD0_0': TriggerPort(port=0),
         'PMOD0_1': TriggerPort(port=1),
@@ -25,10 +25,10 @@ qick_spin_4by2 = QickIOMap(
         'PMOD1_7': TriggerPort(port=17),
     },
     data_ports_mapping = {
-        'NA0': DataPort(port=0, bit=0)
-        'NA1': DataPort(port=1, bit=0)
-        'NA2': DataPort(port=2, bit=0)
-        'NA3': DataPort(port=3, bit=0)
+        'NA0': DataPort(port=0, bit=0),
+        'NA1': DataPort(port=1, bit=0),
+        'NA2': DataPort(port=2, bit=0),
+        'NA3': DataPort(port=3, bit=0),
     },
     dac_ports_mapping = {
         'DAC_A': DACPort(port=0),

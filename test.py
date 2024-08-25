@@ -3,9 +3,18 @@ from numbers import Number
 from nspyre import nspyre_init_logger
 
 from qpc.compiler import QPC
+from qpc.boards import qick_spin_4x2
+from qpc.io import QickIO, QickIODevice
 from qpc.loop import QickLoop
 from qpc.pulse import Delay, TrigConst, TrigPulse, RFSquarePulse
 from qpc.types import QickCode, QickScope, QickReg, QickTime
+
+pmod0_0 = QickIO(channel_type='trig', channel='PMOD0_0', offset=0)
+pmod0_1 = QickIO(channel_type='trig', channel='PMOD0_1', offset=0)
+dac_0 = QickIO(channel_type='dac', channel='DAC_A', offset=0)
+dac_1 = QickIO(channel_type='dac', channel='DAC_B', offset=0)
+
+device1 = QickIODevice(io=pmod0_0, offset=1e-6)
 
 def test1():
     code = QickCode()
@@ -125,11 +134,17 @@ def test13():
         code.add(t2)
     return code
 
+def test14():
+    return TrigPulse(ch=pmod0_0, length=3e-6, name='t1')
+
+def test15():
+    return TrigPulse(ch=device1, length=3e-6, name='t1')
+
 if __name__ == '__main__':
     import logging
 
     nspyre_init_logger(log_level=logging.INFO)
 
-    with QPC(fake_soc=True) as qpc:
-        qpc.run(test13())
+    with QPC(iomap=qick_spin_4x2, fake_soc=True) as qpc:
+        qpc.run(test15())
         input('Press enter to exit\n')
