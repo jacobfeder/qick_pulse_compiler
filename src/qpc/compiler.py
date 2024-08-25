@@ -127,28 +127,37 @@ class QPC:
         # assembly code of this expression, e.g. 'r1 + 5' or 'r1 + r2'
         exp_asm = ''
 
-        if isinstance(exp.left, QickExpression):
-            left_pre_asm, left_exp_asm = self._compile_exp(exp=exp.left, regno=regno + 1)
+        if isinstance(exp.left, QickExpression) or isinstance(exp.left, QickReg):
+            # left not allowed to be an immediate by the assembler
+            # so we need to swap left / right
+            left = exp.left
+            right = exp.right
+        else:
+            left = exp.right
+            right = exp.left
+
+        if isinstance(left, QickExpression):
+            left_pre_asm, left_exp_asm = self._compile_exp(exp=left, regno=regno + 1)
             pre_asm += left_pre_asm
             pre_asm += f'REG_WR r{regno} op -op({left_exp_asm})\n'
             exp_asm += f'r{regno} '
             regno += 1
-        elif isinstance(exp.left, QickReg):
-            exp_asm += f'{exp.left} '
+        elif isinstance(left, QickReg):
+            exp_asm += f'{left} '
         else:
-            exp_asm += f'#{exp.left} '
+            exp_asm += f'#{left} '
 
         exp_asm += exp.operator
 
-        if isinstance(exp.right, QickExpression):
-            right_pre_asm, right_exp_asm = self._compile_exp(exp=exp.right, regno=regno + 1)
+        if isinstance(right, QickExpression):
+            right_pre_asm, right_exp_asm = self._compile_exp(exp=right, regno=regno + 1)
             pre_asm += right_pre_asm
             pre_asm += f'REG_WR r{regno} op -op({right_exp_asm})\n'
             exp_asm += f' r{regno}'
-        elif isinstance(exp.right, QickReg):
-            exp_asm += f' {exp.right}'
+        elif isinstance(right, QickReg):
+            exp_asm += f' {right}'
         else:
-            exp_asm += f' #{exp.right}'
+            exp_asm += f' #{right}'
 
         return pre_asm, exp_asm
 
@@ -175,6 +184,12 @@ class QPC:
             if isinstance(qick_obj, QickReg) and qick_obj.reg is None:
                 nregs += 1
 
+        # recursively compile the rest of the QickCode objects
+        for key, qick_obj in code.kvp.copy().items():
+            if isinstance(qick_obj, QickCode):
+                sub_asm, labelno = self._compile(code=qick_obj, regno=regno + nregs, labelno=labelno)
+                asm = asm.replace(key, sub_asm)
+
         # compile the QickExpression
         with QickScope(code=code):
             # make a copy since we'll be adding new elements
@@ -183,12 +198,6 @@ class QPC:
                     pre_asm, exp_asm = self._compile_exp(exp=qick_obj, regno=regno + nregs)
                     asm = asm.replace(key + 'pre_asm', pre_asm)
                     asm = asm.replace(key + 'exp_asm', exp_asm)
-
-        # recursively compile the rest of the QickCode objects
-        for key, qick_obj in code.kvp.copy().items():
-            if isinstance(qick_obj, QickCode):
-                sub_asm, labelno = self._compile(code=qick_obj, regno=regno + nregs, labelno=labelno)
-                asm = asm.replace(key, sub_asm)
 
         # compile the rest of the non-code objects
         for key, qick_obj in code.kvp.items():
