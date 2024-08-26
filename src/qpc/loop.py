@@ -26,7 +26,12 @@ class QickLoop(QickCode):
             kwargs: Keyword arguments to pass to the QickCode constructor.
 
         """
-        super().__init__(*args, **kwargs)
+        if inc_ref:
+            super().__init__(*args, length=0, **kwargs)
+        elif isinstance(code.length, QickVarType):
+            super().__init__(*args, length=0, **kwargs)
+        else:
+            super().__init__(*args, length=code.length * loops, **kwargs)
 
         self.loops = loops
         self.inc_ref = inc_ref
@@ -34,13 +39,6 @@ class QickLoop(QickCode):
         with QickScope(code=self):
             # make a copy so we don't modify the original code
             code = code.qick_copy()
-
-            if inc_ref:
-                super().__init__(*args, length=0, **kwargs)
-            elif isinstance(code.length, QickVarType):
-                super().__init__(*args, length=0, **kwargs)
-            else:
-                super().__init__(*args, length=code.length * loops, **kwargs)
 
             if self.inc_ref:
                 code.inc_ref()
@@ -94,49 +92,41 @@ class QickSweep(QickCode):
             kwargs: Keyword arguments to pass to the QickCode constructor.
 
         """
-        super().__init__(*args, **kwargs)
+        if inc_ref is False and self.soccfg is not None and isinstance(code.length, QickTime):
+            # TODO calculate the length based on number of loop iterations
+            super().__init__(*args, length=0, **kwargs)
+        else:
+            # we can't easily calculate the length so just set it to 0
+            super().__init__(*args, length=0, **kwargs)
+
+        self.inc_ref = inc_ref
 
         with QickScope(code=self):
             # make a copy so we don't modify the original code
             code = code.qick_copy()
 
-            if inc_ref is False and self.soccfg is not None and isinstance(code.length, QickTime):
-                # TODO calculate the length based on number of loop iterations
-                super().__init__(*args, length=0, **kwargs)
-            else:
-                # we can't easily calculate the length so just set it to 0
-                super().__init__(*args, length=0, **kwargs)
+            if self.inc_ref:
+                code.inc_ref()
 
             self.sweep_start_label = QickLabel(prefix='SWEEP')
             self.sweep_end_label = QickLabel(prefix='SWEEP_END')
             self.sweep_reg = reg
 
-            self.asm += '// ---------------\n'
-            self.asm += '// Sweep\n'
-            self.asm += '// ---------------\n'
-
             # the current value of the sweep
-            self.sweep_reg.assign(self.sweep_reg.start)
+            self.asm += '// sweep reg\n'
+            self.asm += self.sweep_reg._assign(self.sweep_reg.start)
             # the max value of the sweep
+            self.asm += '// sweep stop\n'
             self.max_sweep_reg = QickReg()
-            self.max_sweep_reg.assign(self.sweep_reg.stop)
+            self.asm += self.max_sweep_reg._assign(self.sweep_reg.stop)
 
-            self.asm += f'{sweep_start_label}:\n'
+            self.asm += f'{self.sweep_start_label}:\n'
             self.asm += f'TEST -op({self.sweep_reg} - {self.max_sweep_reg})\n'
             self.asm += f'JUMP {self.sweep_end_label} -if(NS)\n'
 
-            self.asm += '// ---------------\n'
             self.asm += str(code)
-            self.asm += '// ---------------\n'
 
-            if self.inc_ref:
-                # the amount to inc_ref by
-                self.ref_reg = QickReg()
-                self.ref_reg.assign(code.length)
-                self.asm += f'TIME inc_ref {self.ref_reg}\n'
-
-            self.sweep_reg.assign(self.sweep_reg + self.sweep_reg.step)
+            self.asm += self.sweep_reg._assign(self.sweep_reg + self.sweep_reg.step)
 
             self.asm += f'JUMP {self.sweep_start_label}\n'
             self.asm += f'{self.sweep_end_label}:\n'
-            self.asm += '// ---------------\n'

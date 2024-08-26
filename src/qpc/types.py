@@ -215,25 +215,49 @@ class QickConstType(QickType):
             if not self.typecastable(other):
                 raise TypeError(f'Cannot add these QickConstType because their '
                     'types are incompatible.')
-            return self.qick_type()(val=self.val + other.val, epoch=epoch)
+            other_val = other.val
         elif isinstance(other, Number):
-            return self.qick_type()(val=self.val + other, epoch=epoch)
+            other_val = other
         else:
             return NotImplemented
 
+        return self.qick_type()(val=self.val + other_val, epoch=epoch)
+
     def __radd__(self, other) -> QickConstType:
         return self.__add__(other)
+
+    def __sub__(self, other, swap: bool = False) -> QickConstType:
+        epoch = self.transfer_epoch(other)
+        if isinstance(other, QickConstType):
+            if not self.typecastable(other):
+                raise TypeError(f'Cannot subtract these QickConstType because '
+                    'their types are incompatible.')
+            other_val = other.val
+        elif isinstance(other, Number):
+            other_val = other
+        else:
+            return NotImplemented
+
+        if swap:
+            return self.qick_type()(val=other_val - self.val, epoch=epoch)
+        else:
+            return self.qick_type()(val=self.val - other_val, epoch=epoch)
+
+    def __rsub__(self, other) -> QickConstType:
+        return self.__sub__(other, swap=True)
 
     def __mul__(self, other) -> QickConstType:
         if isinstance(other, QickConstType):
             if not self.typecastable(other):
                 raise TypeError(f'Cannot multiply these QickConstType because '
                     'their types are incompatible.')
-            return self.qick_type()(val=self.val * other.val)
+            other_val = other.val
         elif isinstance(other, Number):
-            return self.qick_type()(val=self.val * other)
+            other_val = other
         else:
             return NotImplemented
+
+        return self.qick_type()(val=self.val * other_val, epoch=epoch)
 
     def __rmul__(self, other) -> QickConstType:
         return self.__mul__(other)
@@ -337,8 +361,6 @@ class QickReg(QickVarType):
                 self.held_type = None
             else:
                 raise TypeError(f'value [{value}] must be a QickType or int.')
-        else:
-            raise ValueError(f'Cannot reassign reg [{self}].')
 
         if isinstance(value, int) or isinstance(value, QickConstType):
             asm = f'REG_WR {self} imm #{value}\n'
@@ -442,19 +464,6 @@ class QickSweptReg(QickReg):
         self.stop = stop
         self.step = step
 
-    def __str__(self):
-        raise ValueError('QickSweepArange cannot be converted into a string '
-            'key. Use start_key(), stop_key(), and step_key().')
-
-    def start_key(self) -> str:
-        return self.key(subid='start')
-
-    def stop_key(self) -> str:
-        return self.key(subid='stop')
-
-    def step_key(self) -> str:
-        return self.key(subid='step')
-
 class QickCode(QickObject):
     """Represents a segment of qick code. There are two components. The first
     is a string containing assembly code. The second is a key-value pair ("kvp")
@@ -548,15 +557,17 @@ class QickCode(QickObject):
                 qick_obj._qick_copy()
 
     def qick_copy(self):
-        """Implements deepcopy-like behavior."""
+        """Implements deepcopy-like behavior. Make a copy of the code, but
+        replace all QickCode id's with new id's."""
 
         # create the copy object
         new_code = deepcopy(self)
 
-        # get a new id
+        # get a new id for this QickCode
         new_code._alloc_qpc_id()
         # put the new code in the current scope
         new_code._connect_scope()
+        # get a new id for the rest of the QickCode contained within new_code
         new_code._qick_copy()
 
         return new_code
@@ -613,7 +624,7 @@ class QickCode(QickObject):
         """
         with QickScope(code=self):
             port, offset = self.deembed_io(ch)
-            self.asm += f'// Setting trigger port {port} to {state}\n'
+            self.asm += f'// setting trigger port {port} to {state}\n'
             if time is not None:
                 if isinstance(time, Number):
                     time = QickTime(time)
@@ -672,7 +683,7 @@ class QickCode(QickObject):
         with QickScope(code=self):
             port, offset = self.deembed_io(ch)
 
-            self.asm += f'// Pulsing RF port {port}\n'
+            self.asm += f'// pulsing RF port {port}\n'
 
             if time is not None:
                 if isinstance(time, Number):
@@ -726,13 +737,13 @@ class QickCode(QickObject):
             with QickScope(code=code):
                 # calculate the amount to offset all pulses in code
                 offset_reg = QickReg()
-                code.asm = '// Length offset\n' + \
+                code.asm = '// length offset\n' + \
                     offset_reg._assign(self.length) + \
                     code.asm
 
                 # find all epoch objects in kvp and offset them by offset_reg
                 for key, qick_obj in code.kvp.copy().items():
-                    if qick_obj.epoch:
+                    if isinstance(qick_obj, QickType) and qick_obj.epoch:
                         new_epoch = qick_obj + offset_reg
                         code.update_key(key, new_epoch)
 

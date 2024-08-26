@@ -184,7 +184,21 @@ def test19():
             step=QickTime(1e-6)
         )
         t1 = TrigPulse(ch=0, length=swept_reg, name='t1')
-    return QickSweep(code=t1, reg=swept_reg, inc_ref=True)
+        code.add(QickSweep(code=t1, reg=swept_reg, inc_ref=True, name='sweep'))
+    return code
+
+def test20():
+    code = QickCode(name='code')
+    with QickScope(code):
+        swept_reg = QickSweptReg(
+            start=QickTime(2e-6),
+            stop=QickTime(5e-6),
+            step=QickTime(1e-6)
+        )
+        t1 = TrigPulse(ch=0, length=swept_reg, name='t1')
+        t2 = TrigPulse(ch=1, length=QickTime(10e-6), name='t2')
+        code.add(QickSweep(code=t1 + t2, reg=swept_reg, inc_ref=True, name='sweep'))
+    return code
 
 if __name__ == '__main__':
     import logging
@@ -192,5 +206,5 @@ if __name__ == '__main__':
     nspyre_init_logger(log_level=logging.INFO)
 
     with QPC(iomap=qick_spin_4x2, fake_soc=True) as qpc:
-        qpc.run(test15())
+        qpc.run(test20())
         input('Press enter to exit\n')

@@ -235,7 +235,7 @@ class QPC:
                 user for global variables.
 
         """
-        wrapper_code = QickCode(name='Program')
+        wrapper_code = QickCode(name='program')
         with QickScope(code=wrapper_code):
             # make a copy so we don't modify the original code
             code = code.qick_copy()
