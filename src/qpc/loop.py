@@ -117,16 +117,22 @@ class QickSweep(QickCode):
             self.asm += self.sweep_reg._assign(self.sweep_reg.start)
             # the max value of the sweep
             self.asm += '// sweep stop\n'
-            self.max_sweep_reg = QickReg()
-            self.asm += self.max_sweep_reg._assign(self.sweep_reg.stop)
+            self.sweep_stop_reg = QickReg()
+            self.asm += self.sweep_stop_reg._assign(self.sweep_reg.stop)
+            # the step size of the sweep
+            self.asm += '// sweep step\n'
+            self.sweep_step_reg = QickReg()
+            self.asm += self.sweep_step_reg._assign(self.sweep_reg.step)
 
+            # exit the loop of sweep_reg > sweep_stop_reg
             self.asm += f'{self.sweep_start_label}:\n'
-            self.asm += f'TEST -op({self.sweep_reg} - {self.max_sweep_reg})\n'
+            self.asm += f'TEST -op({self.sweep_reg} - {self.sweep_stop_reg})\n'
             self.asm += f'JUMP {self.sweep_end_label} -if(NS)\n'
 
+            # insert the code
             self.asm += str(code)
 
-            self.asm += self.sweep_reg._assign(self.sweep_reg + self.sweep_reg.step)
-
+            # increment sweep_reg by sweep_reg.step
+            self.asm += self.sweep_reg._assign(self.sweep_reg + self.sweep_step_reg)
             self.asm += f'JUMP {self.sweep_start_label}\n'
             self.asm += f'{self.sweep_end_label}:\n'
