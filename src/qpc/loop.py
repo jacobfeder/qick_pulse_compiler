@@ -1,4 +1,3 @@
-from copy import deepcopy
 from typing import Optional
 from typing import Union
 from typing import List
@@ -34,7 +33,7 @@ class QickLoop(QickCode):
 
         with QickScope(code=self):
             # make a copy so we don't modify the original code
-            # code = deepcopy(code)
+            code = code.qick_copy()
 
             if inc_ref:
                 super().__init__(*args, length=0, **kwargs)
@@ -66,13 +65,6 @@ class QickLoop(QickCode):
                 self.asm += f'JUMP {self.loop_end_label} -if(NS)\n'
 
             self.asm += str(code)
-
-            # if self.inc_ref:
-            #     with QickScope(code=code):
-            #         # the amount to inc_ref by
-            #         self.ref_reg = QickReg()
-            #         self.ref_reg.assign(code.length)
-            #         code.asm += f'TIME inc_ref {self.ref_reg}\n'
 
             if self.loops is not None:
                 self.loop_reg.assign(self.loop_reg + 1)

@@ -536,28 +536,30 @@ class QickCode(QickObject):
             ref_reg.assign(self.length)
             self.asm += f'TIME inc_ref {ref_reg}\n'
 
-    def qick_copy(self, code_dict: Dict = None):
+    def _qick_copy(self):
+        """Recursively iterate through all QickCode and change their ids."""
+
+        for old_key, qick_obj in self.kvp.copy().items():
+            if isinstance(qick_obj, QickCode):
+                # get a new id
+                qick_obj._alloc_qpc_id()
+                # update the id in the kvp
+                self.update_key(old_key, qick_obj)
+                qick_obj._qick_copy()
+
+    def qick_copy(self):
         """Implements deepcopy-like behavior."""
 
-        # deep copy
-        # iterate through all qickcodes and change their id
-        # find-replace change their id in the asm
-
         # create the copy object
-        new_obj = QickObject.__new__(QickObject)
+        new_code = deepcopy(self)
 
-        import pdb; pdb.set_trace()
-        for ivar_name, ivar in self.__dict__.items():
-            if isinstance(ivar, QickObject):
-                setattr(new_obj, ivar_name, ivar.qick_copy(code_dict))
-            elif ivar_name == 'scope':
-                old_code_key = self.scope._key()
-                new_code = code_dict[old_code_key]
-                setattr(new_obj, ivar_name, new_code)
-            else:
-                setattr(new_obj, ivar_name, ivar)
+        # get a new id
+        new_code._alloc_qpc_id()
+        # put the new code in the current scope
+        new_code._connect_scope()
+        new_code._qick_copy()
 
-        return new_obj
+        return new_code
 
     def deembed_io(self, io: Union[QickIODevice, QickIO, int]) -> Tuple:
         """Calculate the final offset relevant to the provided IO.
