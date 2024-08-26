@@ -9,7 +9,6 @@ Date: 2024-08-16
 """
 
 from __future__ import annotations
-from copy import deepcopy
 import logging
 from math import ceil, log10
 from numbers import Number
@@ -175,8 +174,7 @@ class QPC:
         asm = code.asm
 
         # add name header
-        if code.name is not None:
-            asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
+        asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
 
         # calculate how many registers will be allocated
         nregs = 0
@@ -201,9 +199,6 @@ class QPC:
 
         # compile the rest of the non-code objects
         for key, qick_obj in code.kvp.items():
-            if key != qick_obj._key():
-                raise RuntimeError('Internal error: key does not match object')
-
             if isinstance(qick_obj, QickTime):
                 asm = asm.replace(key, str(self.soc.us2cycles(qick_obj.val * 1e6)))
             elif isinstance(qick_obj, QickLabel):
@@ -225,6 +220,9 @@ class QPC:
             for port_name, port in self.iomap.mappings['trig'].items():
                 asm = asm.replace(f'*{port_name}*', str(port.port))
 
+        # add name footer
+        asm += f'// ---------------\n// end {code.name}\n// ---------------\n'
+
         return asm, labelno
 
     def compile(self, code: QickCode, start_reg: int = 0):
@@ -237,17 +235,25 @@ class QPC:
                 user for global variables.
 
         """
-        wrapper_code = QickCode()
+        wrapper_code = QickCode(name='Program')
         with QickScope(code=wrapper_code):
             # make a copy so we don't modify the original code
-            code = deepcopy(code)
+            code = code.qick_copy()
 
-            # wrap it
+            # add a NOP to the beginning of the program
+            wrapper_code.asm += 'NOP\n'
+            # add a 1 ms inc_ref to the beginning of the program
+            wrapper_code.asm += f'TIME inc_ref #{int(self.soc.us2cycles(1e3))}\n'
+
+            # wrap the code
             wrapper_code.asm += str(code)
+
+            # add an infinite loop to the end of the program
+            wrapper_code.asm += 'JUMP HERE\n'
 
             # compile!
             asm, _ = self._compile(
-                code=wrapper_code,
+                code=code,
                 regno=start_reg,
                 labelno=0
             )
@@ -286,32 +292,14 @@ class QPC:
             asm: Assembly code to load.
 
         """
-        # remove indentation
-        new_asm = ''
-        for line in asm.split('\n'):
-            new_asm += line.lstrip() + '\n'
-
-        # add a NOP to the beginning of the program
-        setup_asm = 'NOP\n'
-        # add a 1 ms inc_ref to the beginning of the program
-        setup_asm += f'TIME inc_ref #{int(self.soc.us2cycles(1e3))}\n'
-        # add an infinite loop to the end of the program
-        teardown_asm = 'JUMP HERE\n'
-        # add setup and teardown asm
-        new_asm = setup_asm + new_asm + teardown_asm
-
         if self.print_prog:
-            print('#################')
-            print('#### Program ####')
-            print('#################')
-            ndigits = ceil(log10(new_asm.count('\n')))
-            for i, line in enumerate(new_asm.splitlines()):
+            ndigits = ceil(log10(asm.count('\n')))
+            for i, line in enumerate(asm.splitlines()):
                 # add line numbers
                 print(f'{i+1:0{str(ndigits)}}: {line}')
-            print('#################\n')
 
         # assemble program
-        pmem, asm_bin = Assembler.str_asm2bin(new_asm)
+        pmem, asm_bin = Assembler.str_asm2bin(asm)
 
         # stop any previously running program
         self.soc.tproc.reset()
@@ -322,7 +310,7 @@ class QPC:
     def off_prog(self) -> QickCode:
         """A program that outputs 0's on all ports."""
 
-        off_code = QickCode()
+        off_code = QickCode(name='off program')
         with QickScope(off_code):
             # disable all trig ports
             for p in self.iomap.trigger_ports():

@@ -5,9 +5,9 @@ from nspyre import nspyre_init_logger
 from qpc.compiler import QPC
 from qpc.boards import qick_spin_4x2
 from qpc.io import QickIO, QickIODevice
-from qpc.loop import QickLoop
+from qpc.loop import QickLoop, QickSweep
 from qpc.pulse import Delay, TrigConst, TrigPulse, RFSquarePulse
-from qpc.types import QickCode, QickScope, QickReg, QickTime
+from qpc.types import QickCode, QickScope, QickReg, QickSweptReg, QickTime
 
 pmod0_0 = QickIO(channel_type='trig', channel='PMOD0_0', offset=0)
 pmod0_1 = QickIO(channel_type='trig', channel='PMOD0_1', offset=0)
@@ -17,7 +17,7 @@ dac_1 = QickIO(channel_type='dac', channel='DAC_B', offset=0)
 device1 = QickIODevice(io=pmod0_0, offset=1e-6)
 
 def test1():
-    code = QickCode()
+    code = QickCode(name='code')
     with QickScope(code):
         time1 = QickTime(1e-6)
         time2 = QickTime(2e-6)
@@ -31,7 +31,7 @@ def test1():
     return code
 
 def test2():
-    code = QickCode()
+    code = QickCode(name='code')
     with QickScope(code):
         time0 = QickTime(0e-6)
         time1 = QickTime(1e-6)
@@ -101,8 +101,7 @@ def test8():
 
 def test9():
     rf1 = RFSquarePulse(ch=0, length=1e-6, freq=100e6, amp=1_000, name='rf1')
-    rf2 = RFSquarePulse(ch=1, length=2e-6, freq=None, amp=None, time=5e-6, name='rf2')
-
+    rf2 = RFSquarePulse(ch=1, time=5e-6, length=2e-6, freq=None, amp=None, name='rf2')
     return rf1 + rf2
 
 def test10():
@@ -115,7 +114,7 @@ def test11():
     return QickLoop(code=t1 + t2, loops=5, inc_ref=True, name='loop')
 
 def test12():
-    code = QickCode()
+    code = QickCode(name='code')
     with QickScope(code):
         len_reg = QickReg()
         len_reg.assign(QickTime(3e-6))
@@ -124,7 +123,7 @@ def test12():
     return code
 
 def test13():
-    code = QickCode()
+    code = QickCode(name='code')
     with QickScope(code):
         len_reg = QickReg()
         len_reg.assign(QickTime(3e-6))
@@ -135,10 +134,57 @@ def test13():
     return code
 
 def test14():
-    return TrigPulse(ch=pmod0_0, length=3e-6, name='t1')
+    code = QickCode(name='code')
+    with QickScope(code):
+        len_reg = QickReg()
+        len_reg.assign(QickTime(3e-6))
+        t1 = TrigPulse(ch=0, length=len_reg, name='t1')
+        t2 = TrigPulse(ch=1, length=5e-6, name='t2')
+        t3 = TrigPulse(ch=0, length=1e-6, name='t3')
+        code.add(t1)
+        code.add(t2)
+        code.add(t3)
+    return code
 
 def test15():
+    code = QickCode(name='code')
+    with QickScope(code):
+        len_reg = QickReg()
+        len_reg.assign(QickTime(3e-6))
+        t1 = TrigPulse(ch=0, length=len_reg, name='t1')
+        t2 = TrigPulse(ch=1, length=5e-6, name='t2')
+        code.add(t1)
+        code.add(t2)
+        code.add(t2)
+    return code
+
+def test16():
+    code = QickCode(name='code')
+    with QickScope(code):
+        len_reg = QickReg()
+        len_reg.assign(QickTime(3e-6))
+        t1 = TrigPulse(ch=0, length=len_reg, name='t1')
+        t2 = TrigPulse(ch=1, length=5e-6, name='t2')
+        code.add(t1)
+        code.add(t2)
+    return QickLoop(code=code, loops=5, inc_ref=True, name='loop')
+
+def test17():
+    return TrigPulse(ch=pmod0_0, length=3e-6, name='t1')
+
+def test18():
     return TrigPulse(ch=device1, length=3e-6, name='t1')
+
+def test19():
+    code = QickCode(name='code')
+    with QickScope(code):
+        swept_reg = QickSweptReg(
+            start=QickTime(2e-6),
+            stop=QickTime(5e-6),
+            step=QickTime(1e-6)
+        )
+        t1 = TrigPulse(ch=0, length=swept_reg, name='t1')
+    return QickSweep(code=t1, reg=swept_reg, inc_ref=True)
 
 if __name__ == '__main__':
     import logging
@@ -146,5 +192,5 @@ if __name__ == '__main__':
     nspyre_init_logger(log_level=logging.INFO)
 
     with QPC(iomap=qick_spin_4x2, fake_soc=True) as qpc:
-        qpc.run(test15())
+        qpc.run(test16())
         input('Press enter to exit\n')
