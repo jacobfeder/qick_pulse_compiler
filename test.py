@@ -3,11 +3,11 @@ from numbers import Number
 from nspyre import nspyre_init_logger
 
 from qpc.compiler import QPC
-from qpc.boards import qick_spin_4x2
+from qpc.board import qick_spin_4x2
 from qpc.io import QickIO, QickIODevice
 from qpc.loop import QickLoop, QickSweep
 from qpc.pulse import Delay, TrigConst, TrigPulse, RFSquarePulse
-from qpc.types import QickCode, QickScope, QickReg, QickSweptReg, QickTime
+from qpc.type import QickCode, QickScope, QickReg, QickSweptReg, QickTime
 
 pmod0_0 = QickIO(channel_type='trig', channel='PMOD0_0', offset=0)
 pmod0_1 = QickIO(channel_type='trig', channel='PMOD0_1', offset=0)

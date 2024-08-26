@@ -3,7 +3,8 @@ from typing import Optional
 from numbers import Number
 
 from qpc.io import QickIO, QickIODevice
-from qpc.types import QickType, QickVarType, QickFreq, QickTime, QickReg, QickCode
+from qpc.type import QickType, QickVarType, QickFreq, QickTime, QickReg
+from qpc.type import QickCode
 
 class Delay(QickCode):
     def __init__(self, length: QickType, *args, **kwargs):

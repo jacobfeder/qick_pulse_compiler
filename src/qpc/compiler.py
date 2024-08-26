@@ -31,8 +31,8 @@ else:
     local_soc = True
 from qick.tprocv2_assembler import Assembler
 
-from qpc.types import QickType, QickLabel, QickTime, QickFreq, QickReg
-from qpc.types import QickExpression, QickScope, QickCode
+from qpc.type import QickType, QickLabel, QickTime, QickFreq, QickReg
+from qpc.type import QickExpression, QickScope, QickCode
 from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)

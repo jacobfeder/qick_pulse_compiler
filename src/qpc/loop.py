@@ -3,8 +3,8 @@ from typing import Union
 from typing import List
 from numbers import Number
 
-from qpc.types import QickScope, QickLabel, QickVarType, QickReg, QickSweptReg
-from qpc.types import QickCode
+from qpc.type import QickScope, QickLabel, QickVarType, QickReg, QickSweptReg
+from qpc.type import QickCode
 
 class QickLoop(QickCode):
     """Repeat a code block."""
