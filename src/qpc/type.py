@@ -320,6 +320,20 @@ class QickVarType(QickType):
     def __radd__(self, other) -> QickExpression:
         return self.__add__(other, swap=True)
 
+    def __sub__(self, other, swap: bool = False) -> QickExpression:
+        if not self.typecastable(other):
+            raise TypeError(f'Cannot subtract these QickVarType because their '
+                'types are not compatible.')
+        epoch = self.transfer_epoch(other)
+        # swap the orientation if called from __rsub__
+        if swap:
+            return QickExpression(left=other, operator='-', right=self, epoch=epoch)
+        else:
+            return QickExpression(left=self, operator='-', right=other, epoch=epoch)
+
+    def __rsub__(self, other) -> QickExpression:
+        return self.__add__(other, swap=True)
+
     def __mul__(self, other) -> QickConstType:
         # TODO
         return NotImplemented
