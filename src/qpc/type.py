@@ -536,24 +536,21 @@ class QickCode(QickObject):
             # offset for all pulses in the block
             if isinstance(offset, Number):
                 self.offset = QickTime(offset)
-            elif offset is None or isinstance(offset, QickTime) or isinstance(offset, QickVarType):
+            elif offset is None:
+                self.offset = QickTime(0)
+            elif isinstance(offset, QickTime) or isinstance(offset, QickVarType):
                 self.offset = offset
             else:
                 raise ValueError('offset has an invalid type')
 
-            # stack of registers to keep track of the offsets of code blocks
-            # added to this code block
-            self.offset_regs = []
-
-            # first offset reg
-            offset_reg = QickReg()
-            self.offset_regs.append(offset_reg)
-            if not isinstance(offset, QickExpression):
-                # this guarantees that offset_reg will be an expression, which
+            if not isinstance(self.offset, QickExpression):
+                # this guarantees that offset will be an expression, which
                 # is required in order for QickCode.add() to work
-                offset += QickReg(reg='s0')
+                self.offset += QickReg(reg='s0')
             self.asm += '// offset\n'
-            offset_reg.assign(offset)
+            # register to offset all pulses in this code block by
+            self.offset_reg = QickReg()
+            self.offset_reg.assign(self.offset)
 
     def update_key(self, old_key: str, new_obj: QickType):
         """Update the given key in the assembly code and key-value pair dictionary.
@@ -669,21 +666,12 @@ class QickCode(QickObject):
             port_offset = QickTime(io.offset)
             port = io.key()
         elif isinstance(io, int):
-            port_offset = None
+            port_offset = QickTime(0)
             port = io
         else:
             raise ValueError('io has invalid type.')
 
-        if port_offset is None and self.offset is None:
-            offset = QickTime(0)
-        elif self.offset is not None and port_offset is None:
-            offset = self.offset
-        elif self.offset is None and port_offset is not None:
-            offset = port_offset
-        else:
-            offset = self.offset + port_offset
-
-        return port, offset
+        return port, port_offset
 
     def trig(
             self,
@@ -702,23 +690,14 @@ class QickCode(QickObject):
 
         """
         with QickScope(code=self):
-            port, offset = self.deembed_io(ch)
+            port, port_offset = self.deembed_io(ch)
             self.asm += f'// setting trigger port {port} to {state}\n'
             if time is not None:
                 if isinstance(time, Number):
                     time = QickTime(time)
-
                 # set the play time of the trig
                 out_usr_time = QickReg(reg='out_usr_time')
-                final_playtime = offset + time
-                if not isinstance(final_playtime, QickExpression):
-                    # this guarantees that out_usr_time will be an expression, which
-                    # is required in order for QickCode.add() to work
-                    final_playtime += QickReg(reg='s0')
-                # this will get transferred to the out_usr_time assignment,
-                # allowing it to later be replaced in the case of a QickCode.add()
-                final_playtime.epoch = True
-                out_usr_time.assign(final_playtime)
+                out_usr_time.assign(self.offset_reg + port_offset + time)
 
             # set the trig
             if state:
@@ -760,24 +739,16 @@ class QickCode(QickObject):
 
         """
         with QickScope(code=self):
-            port, offset = self.deembed_io(ch)
+            port, port_offset = self.deembed_io(ch)
 
             self.asm += f'// pulsing RF port {port}\n'
 
             if time is not None:
                 if isinstance(time, Number):
                     time = QickTime(time)
-                # set the play time of the pulse
+                # set the play time of the trig
                 out_usr_time = QickReg(reg='out_usr_time')
-                final_playtime = offset + time
-                if not isinstance(final_playtime, QickExpression):
-                    # this guarantees that out_usr_time will be an expression, which
-                    # is required in order for QickCode.add() to work
-                    final_playtime += QickReg(reg='s0')
-                # this will get transferred to the out_usr_time assignment,
-                # allowing it to later be replaced in the case of a QickCode.add()
-                final_playtime.epoch = True
-                out_usr_time.assign(final_playtime)
+                out_usr_time.assign(self.offset_reg + port_offset + time)
 
             if length is not None:
                 if isinstance(length, Number):
@@ -813,25 +784,10 @@ class QickCode(QickObject):
             # make a copy so we don't modify the original code
             code = code.qick_copy()
 
-            # calculate the offset for the pulses in code
-            offset_reg = QickReg()
-            self.asm += '// length offset\n'
-            offset_reg.assign(self.offset_regs[-1] + self.length)
-            self.offset_regs.append(offset_reg)
-
-
-            # ?
-            # get rid of epoch
-            # play all pulses relative to self.offset_regs[-1]
-            # offset self.offset_regs[0] when it get
-
-
-            # find all epoch objects in code kvp and offset them by offset_reg
-            for key, qick_obj in code.kvp.copy().items():
-                if isinstance(qick_obj, QickType) and qick_obj.epoch:
-                    if qick_obj != offset_time:
-                        new_epoch = qick_obj + offset_reg
-                        code.update_key(key, new_epoch)
+            # TODO
+            new_offset = code.offset + self.length + self.offset_reg
+            code.update_key(code.offset._key(), new_offset)
+            code.offset = new_offset
 
             self.length += code.length
             self.asm += str(code)
@@ -859,6 +815,10 @@ class QickCode(QickObject):
                         isinstance(code.length, QickConstType) and \
                         code.length.val > self.length.val:
                     self.length = code.length
+
+            new_offset = self.offset_reg + code.offset
+            code.update_key(code.offset._key(), new_offset)
+            code.offset = new_offset
 
             self.asm += code.asm
             self.merge_kvp(code.kvp)
