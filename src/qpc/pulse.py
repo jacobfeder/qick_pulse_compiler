@@ -14,6 +14,8 @@ class Delay(QickCode):
             length: Length of the delay.
 
         """
+        if 'name' not in kwargs:
+            kwargs['name'] = 'delay'
         super().__init__(*args, length=length, **kwargs)
 
 class TrigConst(QickCode):
@@ -31,6 +33,8 @@ class TrigConst(QickCode):
             invert: If true, turn the channel off.
 
         """
+        if 'name' not in kwargs:
+            kwargs['name'] = 'trig const'
         super().__init__(*args, **kwargs)
         if invert:
             self.trig(ch=ch, state=False, time=0)
@@ -54,6 +58,8 @@ class TrigPulse(QickCode):
             invert: If true, turn the channel off, then on.
 
         """
+        if 'name' not in kwargs:
+            kwargs['name'] = 'trig pulse'
         super().__init__(*args, length=length, **kwargs)
 
         if invert:
@@ -91,6 +97,8 @@ class RFSquarePulse(QickCode):
                 currently in out_usr_time.
 
         """
+        if 'name' not in kwargs:
+            kwargs['name'] = 'rf pulse'
         super().__init__(*args, length=length, **kwargs)
 
         self.rf_square_pulse(

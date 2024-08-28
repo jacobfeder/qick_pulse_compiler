@@ -26,10 +26,15 @@ class QickLoop(QickCode):
             kwargs: Keyword arguments to pass to the QickCode constructor.
 
         """
+        if 'name' not in kwargs:
+            kwargs['name'] = 'loop'
+
         if inc_ref:
             super().__init__(*args, length=0, **kwargs)
         elif isinstance(code.length, QickVarType):
             super().__init__(*args, length=0, **kwargs)
+        elif loops is None:
+            super().__init__(*args, length=0, **kwargs)            
         else:
             super().__init__(*args, length=code.length * loops, **kwargs)
 
@@ -92,6 +97,9 @@ class QickSweep(QickCode):
             kwargs: Keyword arguments to pass to the QickCode constructor.
 
         """
+        if 'name' not in kwargs:
+            kwargs['name'] = 'sweep'
+
         if inc_ref is False and self.soccfg is not None and isinstance(code.length, QickTime):
             # TODO calculate the length based on number of loop iterations
             super().__init__(*args, length=0, **kwargs)
@@ -113,7 +121,7 @@ class QickSweep(QickCode):
             self.sweep_reg = reg
 
             # the current value of the sweep
-            self.asm += '// sweep reg\n'
+            self.asm += '// sweep reg start\n'
             self.asm += self.sweep_reg._assign(self.sweep_reg.start)
             # the max value of the sweep
             self.asm += '// sweep stop\n'

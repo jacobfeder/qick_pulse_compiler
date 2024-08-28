@@ -206,5 +206,5 @@ if __name__ == '__main__':
     nspyre_init_logger(log_level=logging.INFO)
 
     with QPC(iomap=qick_spin_4x2, fake_soc=True) as qpc:
-        qpc.run(test20())
+        qpc.run(test7())
         input('Press enter to exit\n')

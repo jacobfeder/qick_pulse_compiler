@@ -24,26 +24,28 @@ qpc_id = 0
 
 class QickScope:
     """QPC program scope. QPC objects defined within this scope will be
-    associated with the code (and soccfg) given in the constructor."""
+    associated with the code given in the constructor."""
     def __init__(
             self,
             code: QickCode,
-            soccfg: Optional[QickConfig] = None
         ):
         """
         Args:
             code: QickObjects created within this scope will be associated
                 with this code block.
-            soccfg: Qick firmware config.
 
         """
         self.code = code
-        self.soccfg = soccfg
 
     def __enter__(self):
-        if len(qpc_scope) and self.soccfg is None:
-            # inherit soccfg from parent scope
-            self.soccfg = qpc_scope[-1].soccfg
+        if len(qpc_scope):
+            parent_soccfg = qpc_scope[-1].code.soccfg
+            this_soccfg = self.code.soccfg
+            if parent_soccfg is not None:
+                if this_soccfg is None:
+                    # inherit soccfg from parent scope
+                    self.code.soccfg = parent_soccfg
+
         qpc_scope.append(self)
         return self
 
@@ -70,7 +72,7 @@ class QickObject:
         qpc_id += 1
 
     def _connect_scope(self):
-        """Connect object to the local scope"""
+        """Connect object to the local scope."""
         if len(qpc_scope):
             self.scope = qpc_scope[-1]
         else:
@@ -179,6 +181,8 @@ class QickType(QickObject, ABC):
         """
         if self.qick_type() is None:
             return True
+        elif other.qick_type() is None:
+            return True
         else:
             return self.qick_type() == self.qick_type_class(other)
 
@@ -210,7 +214,6 @@ class QickConstType(QickType):
                 'are incompatible.')
 
     def __add__(self, other) -> QickConstType:
-        epoch = self.transfer_epoch(other)
         if isinstance(other, QickConstType):
             if not self.typecastable(other):
                 raise TypeError(f'Cannot add these QickConstType because their '
@@ -221,13 +224,13 @@ class QickConstType(QickType):
         else:
             return NotImplemented
 
+        epoch = self.transfer_epoch(other)
         return self.qick_type()(val=self.val + other_val, epoch=epoch)
 
     def __radd__(self, other) -> QickConstType:
         return self.__add__(other)
 
     def __sub__(self, other, swap: bool = False) -> QickConstType:
-        epoch = self.transfer_epoch(other)
         if isinstance(other, QickConstType):
             if not self.typecastable(other):
                 raise TypeError(f'Cannot subtract these QickConstType because '
@@ -238,6 +241,7 @@ class QickConstType(QickType):
         else:
             return NotImplemented
 
+        epoch = self.transfer_epoch(other)
         if swap:
             return self.qick_type()(val=other_val - self.val, epoch=epoch)
         else:
@@ -257,6 +261,7 @@ class QickConstType(QickType):
         else:
             return NotImplemented
 
+        epoch = self.transfer_epoch(other)
         return self.qick_type()(val=self.val * other_val, epoch=epoch)
 
     def __rmul__(self, other) -> QickConstType:
@@ -492,6 +497,7 @@ class QickCode(QickObject):
             offset: Optional[Number, QickType] = None,
             length: Optional[Number, QickType] = None,
             name: Optional[str] = None,
+            soccfg: Optional[QickConfig] = None,
             *args,
             **kwargs
         ):
@@ -502,6 +508,7 @@ class QickCode(QickObject):
             length: Length of code block.
             name: Optional name that will be added as a comment at the top of
                 the code segment.
+            soccfg: Qick firmware config.
             args: Additional arguments passed to super constructor.
             kwargs: Additional keyword arguments passed to super constructor.
 
@@ -511,6 +518,9 @@ class QickCode(QickObject):
         self.asm = ''
         # key-value pairs
         self.kvp = {}
+
+        self.name = name
+        self.soccfg = soccfg
 
         with QickScope(code=self):
             # length of code block
@@ -531,8 +541,19 @@ class QickCode(QickObject):
             else:
                 raise ValueError('offset has an invalid type')
 
-        self.name = name
+            # stack of registers to keep track of the offsets of code blocks
+            # added to this code block
+            self.offset_regs = []
 
+            # first offset reg
+            offset_reg = QickReg()
+            self.offset_regs.append(offset_reg)
+            if not isinstance(offset, QickExpression):
+                # this guarantees that offset_reg will be an expression, which
+                # is required in order for QickCode.add() to work
+                offset += QickReg(reg='s0')
+            self.asm += '// offset\n'
+            offset_reg.assign(offset)
 
     def update_key(self, old_key: str, new_obj: QickType):
         """Update the given key in the assembly code and key-value pair dictionary.
@@ -551,6 +572,22 @@ class QickCode(QickObject):
         # replace all instances of the old key with the new key in the assembly code
         self.asm = self.asm.replace(old_key, new_key)
 
+    def merge_kvp(self, kvp: Dict):
+        """Merge the given key-value pairs into this code block's key-value
+        pairs.
+
+        Args:
+            kvp: Key-value pair dictionary.
+
+        """
+        for k, v in kvp.items():
+            if k in self.kvp and v != self.kvp[k]:
+                raise RuntimeError('Internal error merging key-value '
+                    'pairs. Key already exists with different value.')
+            else:
+                self.kvp[k] = v
+                v.scope.code = self
+
     def inc_ref(self):
         """Increment the reference by the length of this code block."""
         with QickScope(code=self):
@@ -558,6 +595,34 @@ class QickCode(QickObject):
             ref_reg = QickReg()
             ref_reg.assign(self.length)
             self.asm += f'TIME inc_ref {ref_reg}\n'
+
+    # def __deepcopy__(self, memo):
+    #     # references:
+    #     # https://stackoverflow.com/a/71125311
+    #     # https://stackoverflow.com/a/24621200
+
+    #     # store original soccfg
+    #     original_soccfg = self.soccfg
+
+    #     # prevent infinite recursion in call to deepcopy
+    #     this_deepcopy_method = self.__deepcopy__
+    #     self.__deepcopy__ = None
+
+    #     # delete soccfg so it doesn't get copied in following deepcopy()
+    #     del self.__dict__['soccfg']
+
+    #     # make the copy
+    #     clone = deepcopy(self, memo)
+
+    #     # restore soccfg
+    #     setattr(self, 'soccfg', original_soccfg)
+
+    #     # restore __deepcopy__
+    #     self.__deepcopy__ = this_deepcopy_method
+    #     # bind to clone by types.MethodType
+    #     clone.__deepcopy__ = MethodType(this_deepcopy_method.__func__, clone)
+
+    #     return clone
 
     def _qick_copy(self):
         """Recursively iterate through all QickCode and change their ids."""
@@ -748,38 +813,55 @@ class QickCode(QickObject):
             # make a copy so we don't modify the original code
             code = code.qick_copy()
 
-            with QickScope(code=code):
-                # calculate the amount to offset all pulses in code
-                offset_reg = QickReg()
-                code.asm = '// length offset\n' + \
-                    offset_reg._assign(self.length) + \
-                    code.asm
+            # calculate the offset for the pulses in code
+            offset_reg = QickReg()
+            self.asm += '// length offset\n'
+            offset_reg.assign(self.offset_regs[-1] + self.length)
+            self.offset_regs.append(offset_reg)
 
-                # find all epoch objects in kvp and offset them by offset_reg
-                for key, qick_obj in code.kvp.copy().items():
-                    if isinstance(qick_obj, QickType) and qick_obj.epoch:
+
+            # ?
+            # get rid of epoch
+            # play all pulses relative to self.offset_regs[-1]
+            # offset self.offset_regs[0] when it get
+
+
+            # find all epoch objects in code kvp and offset them by offset_reg
+            for key, qick_obj in code.kvp.copy().items():
+                if isinstance(qick_obj, QickType) and qick_obj.epoch:
+                    if qick_obj != offset_time:
                         new_epoch = qick_obj + offset_reg
                         code.update_key(key, new_epoch)
 
             self.length += code.length
             self.asm += str(code)
 
-            self.name = f'({self.name} + {code.name})'
+        self.name = f'({self.name} + {code.name})'
 
-    def parallel(self, code: QickCode):
-        """Set another code block to run in parallel with this block. The length
-        is set by the right operand.
+    def parallel(self, code: QickCode, auto_length: bool = True):
+        """Set another code block to run in parallel with this block.
+        The code of the right operand will be placed after the left. The length
+        is set to that of the longest operand, unless auto_length is overriden.
 
         Args:
             code: Code to run in parallel with this code.
+            auto_length: If false, don't modify the length. If true, set the
+                length to that of the longer code block. If that cannot be
+                determined, don't modify the length.
 
         """
         with QickScope(code=self):
             # make a copy so we don't modify the original code
             code = code.qick_copy()
 
-            self.length = code.length
-            self.asm += str(code)
+            if auto_length:
+                if isinstance(self.length, QickConstType) and \
+                        isinstance(code.length, QickConstType) and \
+                        code.length.val > self.length.val:
+                    self.length = code.length
+
+            self.asm += code.asm
+            self.merge_kvp(code.kvp)
 
         self.name = f'({self.name} | {code.name})'
 
@@ -787,8 +869,7 @@ class QickCode(QickObject):
         if not isinstance(code, QickCode):
             return NotImplemented
 
-        new_block = QickCode()
-        new_block.add(self)
+        new_block = self.qick_copy()
         new_block.add(code)
 
         return new_block
@@ -797,8 +878,7 @@ class QickCode(QickObject):
         if not isinstance(code, QickCode):
             return NotImplemented
 
-        new_block = QickCode()
-        new_block.parallel(self)
+        new_block = self.qick_copy()
         new_block.parallel(code)
 
         return new_block

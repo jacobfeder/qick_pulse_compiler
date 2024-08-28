@@ -56,7 +56,7 @@ class FakeSoC:
     def __getattr__(self, attr):
         return lambda x: int(x)
 
-class QPC:
+class QPC(AbsQickProgram):
     """Runs a QICK program for tprocv2."""
     def __init__(self,
         iomap: QickIOMap,
@@ -87,6 +87,7 @@ class QPC:
 
         if self.fake_soc:
             self.soc = FakeSoC()
+            self.soccfg = None
         else:
             if local_soc:
                 if 'bitfile' not in self.soc_kwargs:
@@ -174,7 +175,8 @@ class QPC:
         asm = code.asm
 
         # add name header
-        asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
+        if code.name is not None:
+            asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
 
         # calculate how many registers will be allocated
         nregs = 0
@@ -214,14 +216,15 @@ class QPC:
                     asm = asm.replace(key, qick_obj.reg)
 
         # substitute port names for numbers
-        for port_type, port_mapping in self.iomap.mappings.items():
-            # port name is a string
-            # port is one of the namedtuple types from io.py
-            for port_name, port in self.iomap.mappings['trig'].items():
+        for port_type in self.iomap.mappings:
+            for port_name, port in self.iomap.mappings[port_type].items():
+                # port name is a string, e.g. "PMOD0_0"
+                # port is one of the namedtuple types from io.py
                 asm = asm.replace(f'*{port_name}*', str(port.port))
 
         # add name footer
-        asm += f'// ---------------\n// end {code.name}\n// ---------------\n'
+        if code.name is not None:
+            asm += f'// ---------------\n// end {code.name}\n// ---------------\n'
 
         return asm, labelno
 
@@ -253,7 +256,7 @@ class QPC:
 
             # compile!
             asm, _ = self._compile(
-                code=code,
+                code=wrapper_code,
                 regno=start_reg,
                 labelno=0
             )
@@ -309,7 +312,6 @@ class QPC:
 
     def off_prog(self) -> QickCode:
         """A program that outputs 0's on all ports."""
-
         off_code = QickCode(name='off program')
         with QickScope(off_code):
             # disable all trig ports
