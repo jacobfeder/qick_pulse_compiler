@@ -81,7 +81,17 @@ class QickObject:
                 self.scope = None
 
     def _qick_copy(self, scopes: Dict, new_ids: list, new_ids_lut: Dict):
-        """TODO."""
+        """Implements deepcopy-like behavior.
+
+        Args:
+            scopes: Values are QickCode that are in the scope of what's being
+                copied, keys are the corresponding QickCode.key()
+            new_ids: List of new ids.
+            new_ids_lut: Values are QickObject that have been assigned a new id,
+                keys are their corresponding old QickObject.key() before
+                reassignment.
+
+        """
 
         key = self._key()
 
@@ -476,7 +486,17 @@ class QickExpression(QickVarType):
             'key. Use pre_asm_key() and exp_asm_key().')
 
     def _qick_copy(self, scopes: Dict, new_ids: list, new_ids_lut: Dict):
-        """TODO."""
+        """Implements deepcopy-like behavior.
+
+        Args:
+            scopes: Values are QickCode that are in the scope of what's being
+                copied, keys are the corresponding QickCode.key()
+            new_ids: List of new ids.
+            new_ids_lut: Values are QickObject that have been assigned a new id,
+                keys are their corresponding old QickObject.key() before
+                reassignment.
+
+        """
         super()._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
         if isinstance(self.left, QickType):
             self.left._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
@@ -521,7 +541,17 @@ class QickAssignment(QickObject):
         self.rhs = rhs
 
     def _qick_copy(self, scopes: Dict, new_ids: list, new_ids_lut: Dict):
-        """TODO."""
+        """Implements deepcopy-like behavior.
+
+        Args:
+            scopes: Values are QickCode that are in the scope of what's being
+                copied, keys are the corresponding QickCode.key()
+            new_ids: List of new ids.
+            new_ids_lut: Values are QickObject that have been assigned a new id,
+                keys are their corresponding old QickObject.key() before
+                reassignment.
+
+        """
         super()._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
         self.reg._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
         if isinstance(self.rhs, QickType):
@@ -679,8 +709,17 @@ class QickCode(QickObject):
                 qick_obj.update_key(old_key=old_key, new_obj=new_obj)
 
     def _qick_copy(self, scopes: Dict, new_ids: list, new_ids_lut: Dict):
-        """TODO."""
+        """Implements deepcopy-like behavior.
 
+        Args:
+            scopes: Values are QickCode that are in the scope of what's being
+                copied, keys are the corresponding QickCode.key()
+            new_ids: List of new ids.
+            new_ids_lut: Values are QickObject that have been assigned a new id,
+                keys are their corresponding old QickObject.key() before
+                reassignment.
+
+        """
         scopes[self._key()] = self
 
         super()._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
@@ -700,13 +739,13 @@ class QickCode(QickObject):
         # give the code a new id
         new_code._alloc_qpc_id()
 
-        # TODO
         scopes = {}
         new_ids = []
         new_ids_lut = {self._key(): new_code}
+        # process all sub objects
         new_code._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
 
-        # TODO
+        # for the objects that acquired new keys, update them in the kvp and asm
         for old_key, new_obj in new_ids_lut.items():
             new_code.update_key(old_key=old_key, new_obj=new_obj)
 
