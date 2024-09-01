@@ -14,8 +14,6 @@ class Delay(QickCode):
             length: Length of the delay.
 
         """
-        if 'name' not in kwargs:
-            kwargs['name'] = 'delay'
         super().__init__(*args, length=length, **kwargs)
 
 class TrigConst(QickCode):

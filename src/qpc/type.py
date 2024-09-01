@@ -173,6 +173,10 @@ class QickType(QickObject, ABC):
         """Return self converted into the qick type of other."""
         pass
 
+    def scopecast(self):
+        """Change the scope of this object to the current scope."""
+        self._connect_scope()
+
     def qick_type_class(self, other: Union[QickType, Type]) -> Type:
         """Similar to qick_type except it may also accept a class."""
         if (isclass(other) and issubclass(other, QickType)) or other is None:
@@ -386,6 +390,10 @@ class QickReg(QickVarType):
         super().__init__(*args, **kwargs)
         self.reg = reg
 
+    def scopecast(self):
+        """Regs don't get their scope changed - do nothing."""
+        pass
+
     def typecast(self, other: Union[QickType, Type]) -> QickReg:
         """Convert self into the qick type of other."""
         if self.held_type is None:
@@ -509,6 +517,12 @@ class QickExpression(QickVarType):
     def exp_asm_key(self) -> str:
         return self.key(subid='exp_asm')
 
+    def scopecast(self):
+        """Change the scope of this object to the current scope."""
+        self._connect_scope()
+        self.left.scopecast()
+        self.right.scopecast()
+
     def typecast(self, other: Union[QickType, Type]) -> QickExpression:
         """Return self converted into the type of other."""
         try:
@@ -559,6 +573,12 @@ class QickAssignment(QickObject):
 
     def qick_type(self) -> Optional[QickConstType]:
         return self.rhs.qick_type()
+
+    def scopecast(self):
+        """Change the scope of this object to the current scope."""
+        self._connect_scope()
+        self.reg.scopecast()
+        self.rhs.scopecast()
 
     def typecast(self, other: Union[QickType, Type]) -> QickExpression:
         """Return self converted into the type of other."""
@@ -652,34 +672,6 @@ class QickCode(QickObject):
             ref_reg = QickReg()
             ref_reg.assign(self.length)
             self.asm += f'TIME inc_ref {ref_reg}\n'
-
-    # def __deepcopy__(self, memo):
-    #     # references:
-    #     # https://stackoverflow.com/a/71125311
-    #     # https://stackoverflow.com/a/24621200
-
-    #     # store original soccfg
-    #     original_soccfg = self.soccfg
-
-    #     # prevent infinite recursion in call to deepcopy
-    #     this_deepcopy_method = self.__deepcopy__
-    #     self.__deepcopy__ = None
-
-    #     # delete soccfg so it doesn't get copied in following deepcopy()
-    #     del self.__dict__['soccfg']
-
-    #     # make the copy
-    #     clone = deepcopy(self, memo)
-
-    #     # restore soccfg
-    #     setattr(self, 'soccfg', original_soccfg)
-
-    #     # restore __deepcopy__
-    #     self.__deepcopy__ = this_deepcopy_method
-    #     # bind to clone by types.MethodType
-    #     clone.__deepcopy__ = MethodType(this_deepcopy_method.__func__, clone)
-
-    #     return clone
 
     def update_key(self, old_key: str, new_obj: QickType):
         """Update the given key in the assembly code and key-value pair
@@ -890,8 +882,9 @@ class QickCode(QickObject):
                 qick_obj.epoch_offset(offset)
             elif isinstance(qick_obj, QickAssignment) and \
                 qick_obj.reg.reg == 'out_usr_time':
-                    with QickScope(code=self):
-                        qick_obj.rhs += offset
+                    new_rhs = qick_obj.rhs + offset
+                    new_rhs.scopecast()
+                    qick_obj.rhs = new_rhs
 
     def add(self, code: QickCode):
         """Set another code block to run sequentially after this block.

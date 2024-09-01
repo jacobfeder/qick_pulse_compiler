@@ -265,8 +265,8 @@ class QPC(AbsQickProgram):
         Args:
             code: The code block to compile.
             start_reg: Lowest register number that will be used by the compiler.
-                All registers below this will be ignored and can utilized by the
-                user for global variables.
+                All registers below this will be ignored and can be utilized by
+                the user for global variables.
 
         """
         wrapper_code = QickCode(name='program')
