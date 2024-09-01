@@ -31,8 +31,8 @@ else:
     local_soc = True
 from qick.tprocv2_assembler import Assembler
 
-from qpc.type import QickType, QickLabel, QickTime, QickFreq, QickReg
-from qpc.type import QickExpression, QickScope, QickCode
+from qpc.type import QickType, QickConstType, QickLabel, QickTime, QickFreq, QickReg
+from qpc.type import QickExpression, QickAssignment, QickScope, QickCode
 from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
@@ -52,9 +52,12 @@ class FakeSoC:
     def __init__(self, *args, **kwargs):
         self.tproc = FakeTProc()
 
-    # simulate us2cycles, freq2reg, etc.
-    def __getattr__(self, attr):
-        return lambda x: int(x)
+    def us2cycles(self, x):
+        # assume clock = 1 GHz
+        return round(1000 * x)
+
+    def freq2reg(self, x):
+        return round(x)
 
 class QPC(AbsQickProgram):
     """Runs a QICK program for tprocv2."""
@@ -109,6 +112,23 @@ class QPC(AbsQickProgram):
     def __exit__(self, *args):
         self.stop()
 
+    def _compile_assignment(
+            self,
+            asn: QickAssignment,
+        ) -> str:
+        """Create the assembly code that evaluates a QickAssignment."""
+
+        if isinstance(asn.rhs, int) or isinstance(asn.rhs, QickConstType):
+            asm = f'REG_WR {asn.reg} imm #{asn.rhs}\n'
+        elif isinstance(asn.rhs, QickReg):
+            asm = f'REG_WR {asn.reg} op -op({asn.rhs})\n'
+        elif isinstance(asn.rhs, QickExpression):
+            asm = f'{asn.rhs.pre_asm_key()}REG_WR {asn.reg} op -op({asn.rhs.exp_asm_key()})\n'
+        else:
+            raise TypeError(f'Tried to assign reg a value with an invalid type.')
+
+        return asm
+
     def _compile_exp(
             self,
             exp: QickExpression,
@@ -127,14 +147,19 @@ class QPC(AbsQickProgram):
         # assembly code of this expression, e.g. 'r1 + 5' or 'r1 + r2'
         exp_asm = ''
 
-        if isinstance(exp.left, QickExpression) or isinstance(exp.left, QickReg):
+        # TODO check that regno does not exceed # of registers
+
+        if isinstance(exp.left, QickConstType):
             # left not allowed to be an immediate by the assembler
             # so we need to swap left / right
-            left = exp.left
-            right = exp.right
-        else:
+            if exp.operator == '-':
+                raise RuntimeError('Expression with constant minus variable is '
+                    'not allowed by the assembler.')
             left = exp.right
             right = exp.left
+        else:
+            left = exp.left
+            right = exp.right
 
         if isinstance(left, QickExpression):
             left_pre_asm, left_exp_asm = self._compile_exp(exp=left, regno=regno + 1)
@@ -177,6 +202,12 @@ class QPC(AbsQickProgram):
         # add name header
         if code.name is not None:
             asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
+
+        # compile QickAssignment (register assignments)
+        for key, qick_obj in code.kvp.copy().items():
+            if isinstance(qick_obj, QickAssignment):
+                assignment_asm = self._compile_assignment(asn=qick_obj)
+                asm = asm.replace(key, assignment_asm)
 
         # calculate how many registers will be allocated
         nregs = 0
@@ -240,13 +271,14 @@ class QPC(AbsQickProgram):
         """
         wrapper_code = QickCode(name='program')
         with QickScope(code=wrapper_code):
-            # make a copy so we don't modify the original code
+
+            # make a copy so we don't modify the original code during compilation
             code = code.qick_copy()
 
             # add a NOP to the beginning of the program
             wrapper_code.asm += 'NOP\n'
-            # add a 1 ms inc_ref to the beginning of the program
-            wrapper_code.asm += f'TIME inc_ref #{int(self.soc.us2cycles(1e3))}\n'
+            # add a short inc_ref to the beginning of the program
+            wrapper_code.asm += f'TIME inc_ref #{int(self.soc.us2cycles(100))}\n'
 
             # wrap the code
             wrapper_code.asm += str(code)

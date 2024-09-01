@@ -101,7 +101,7 @@ def test8():
 
 def test9():
     rf1 = RFSquarePulse(ch=0, length=1e-6, freq=100e6, amp=1_000, name='rf1')
-    rf2 = RFSquarePulse(ch=1, time=5e-6, length=2e-6, freq=None, amp=None, name='rf2')
+    rf2 = RFSquarePulse(ch=1, length=2e-6, freq=None, amp=None, name='rf2')
     return rf1 + rf2
 
 def test10():
@@ -153,8 +153,8 @@ def test15():
         len_reg.assign(QickTime(3e-6))
         t1 = TrigPulse(ch=0, length=len_reg, name='t1')
         t2 = TrigPulse(ch=1, length=5e-6, name='t2')
-        code.add(t1)
         code.add(t2)
+        code.add(t1)
         code.add(t2)
     return code
 
@@ -206,5 +206,5 @@ if __name__ == '__main__':
     nspyre_init_logger(log_level=logging.INFO)
 
     with QPC(iomap=qick_spin_4x2, fake_soc=True) as qpc:
-        qpc.run(test7())
+        qpc.run(test15())
         input('Press enter to exit\n')
