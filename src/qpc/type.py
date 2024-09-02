@@ -883,8 +883,8 @@ class QickCode(QickObject):
         for old_key, qick_obj in self.kvp.copy().items():
             if isinstance(qick_obj, QickCode):
                 qick_obj.epoch_offset(offset)
-            elif isinstance(qick_obj, QickAssignment) and \
-                qick_obj.reg.reg == 'out_usr_time':
+            elif isinstance(qick_obj, QickAssignment) and qick_obj.reg.reg == 'out_usr_time':
+                with QickScope(code=self):
                     new_rhs = qick_obj.rhs + offset
                     new_rhs.scopecast()
                     qick_obj.rhs = new_rhs

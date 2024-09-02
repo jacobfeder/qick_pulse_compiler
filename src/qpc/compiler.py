@@ -204,10 +204,11 @@ class QPC(AbsQickProgram):
             asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
 
         # compile QickAssignment (register assignments)
-        for key, qick_obj in code.kvp.copy().items():
-            if isinstance(qick_obj, QickAssignment):
-                assignment_asm = self._compile_assignment(asn=qick_obj)
-                asm = asm.replace(key, assignment_asm)
+        with QickScope(code=code):
+            for key, qick_obj in code.kvp.copy().items():
+                if isinstance(qick_obj, QickAssignment):
+                    assignment_asm = self._compile_assignment(asn=qick_obj)
+                    asm = asm.replace(key, assignment_asm)
 
         # calculate how many registers will be allocated
         nregs = 0
@@ -271,7 +272,6 @@ class QPC(AbsQickProgram):
         """
         wrapper_code = QickCode(name='program')
         with QickScope(code=wrapper_code):
-
             # make a copy so we don't modify the original code during compilation
             code = code.qick_copy()
 
