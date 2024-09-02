@@ -209,10 +209,7 @@ def test21():
             (r0 + QickTime(5e-9)) + \
             (r0 + r1) + \
             (r0 + QickTime(1e-9))
-        code.asm += '// unsimplified\n'
         r2.assign(exp)
-        code.asm += '// simplified\n'
-        r2.assign(exp.simplify())
     return code
 
 if __name__ == '__main__':
