@@ -323,6 +323,9 @@ class QickVarType(QickType):
     def qick_type(self) -> Optional[QickConstType]:
         return self.held_type
 
+    # TODO convert to/from a QickExpression tree <-> a sympy expression
+    # use sympy to simplify expressions
+
     def __add__(self, other) -> QickExpression:
         if not self.typecastable(other):
             raise TypeError('Cannot add these QickVarType because their '
