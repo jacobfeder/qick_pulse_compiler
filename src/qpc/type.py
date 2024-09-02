@@ -13,6 +13,7 @@ from types import MethodType
 from typing import Optional, Union, Type
 
 from qick import QickConfig
+import sympy
 
 from qpc.io import QickIO, QickIODevice
 
@@ -279,6 +280,16 @@ class QickConstType(QickType):
     def __rmul__(self, other) -> QickConstType:
         return self.__mul__(other)
 
+    def _to_sympy(self, regs: Dict):
+        """Create a sympy expression from a QickExpression.
+
+        Args:
+            regs: Dict mapping register _key() to register objects utilized
+                during the conversion
+
+        """
+        return self.val
+
 class QickTime(QickConstType):
     """Represents a time."""
     def typecastable(self, other: Union[QickType, Type]) -> bool:
@@ -323,34 +334,12 @@ class QickVarType(QickType):
     def qick_type(self) -> Optional[QickConstType]:
         return self.held_type
 
-    # TODO convert to/from a QickExpression tree <-> a sympy expression
-    # use sympy to simplify expressions
-
     def __add__(self, other) -> QickExpression:
         if not self.typecastable(other):
             raise TypeError('Cannot add these QickVarType because their '
                 'types are not compatible.')
 
-        if isinstance(self, QickExpression) and \
-            self.operator == '+' and \
-            isinstance(other, QickConstType):
-            # addition associative property that can save some instructions
-            # e.g. self = (x + 3), other = 5
-            # e.g. result = (x + 3) + 5 = x + (3 + 5) = x + 8
-            if isinstance(self.left, QickConstType):
-                return QickExpression(
-                        left=self.right,
-                        operator='+',
-                        right=other + self.left
-                    )
-            elif isinstance(self.right, QickConstType):
-                return QickExpression(
-                        left=self.left,
-                        operator='+',
-                        right=other + self.right
-                    )
-
-        return QickExpression(left=self, operator='+', right=other)
+        return QickExpression(left=self, operator='+', right=other).simplify()
 
     def __radd__(self, other) -> QickExpression:
         return self.__add__(other)
@@ -360,13 +349,11 @@ class QickVarType(QickType):
             raise TypeError('Cannot subtract these QickVarType because their '
                 'types are not compatible.')
 
-        # TODO implement analogous associative property as in __add__
-
         # swap the orientation if called from __rsub__
         if swap:
-            return QickExpression(left=other, operator='-', right=self)
+            return QickExpression(left=other, operator='-', right=self).simplify()
         else:
-            return QickExpression(left=self, operator='-', right=other)
+            return QickExpression(left=self, operator='-', right=other).simplify()
 
     def __rsub__(self, other) -> QickExpression:
         return self.__add__(other, swap=True)
@@ -380,18 +367,27 @@ class QickVarType(QickType):
 
 class QickReg(QickVarType):
     """Represents a register in the tproc."""
-    def __init__(self, *args, reg: Optional[str] = None, **kwargs):
+    def __init__(
+            self,
+            *args,
+            val: Optional[QickType] = None,
+            reg: Optional[str] = None,
+            **kwargs
+        ):
         """
 
         Args:
             reg: Register to use. If None, a register will be
                 automatically assigned.
+            val: If not None, assign the variable to this value.
             args: Additional arguments passed to super constructor.
             kwargs: Additional keyword arguments passed to super constructor.
 
         """
         super().__init__(*args, **kwargs)
         self.reg = reg
+        if val is not None:
+            self.assign(val)
 
     def scopecast(self):
         """Regs don't get their scope changed - do nothing."""
@@ -429,6 +425,35 @@ class QickReg(QickVarType):
 
         """
         self.scope.code.asm += self._assign(value=value)
+
+    # TODO use this implementation once multiplication / ARITH is implemented
+    # def _to_sympy(self, regs: Dict):
+    #     """Create a sympy expression from a QickExpression.
+
+    #     Args:
+    #         regs: Dict mapping register _key() to register objects utilized
+    #             during the conversion
+
+    #     """
+    #     regs[self._key()] = self
+    #     return sympy.Symbol(self._key())
+
+    def _to_sympy(self, regs: Dict):
+        """Create a sympy expression from a QickExpression.
+
+        Args:
+            regs: Dict mapping register _key() to register objects utilized
+                during the conversion
+
+        """
+        # make each register unique in sympy so it doesn't consolidate them
+        # into a product term
+        n = 0
+        while self._key() + str(n) in regs:
+            n += 1
+        key = self._key() + str(n)
+        regs[key] = self
+        return sympy.Symbol(key)
 
 class QickSweptReg(QickReg):
     """Represents the arguments to a swept variable."""
@@ -482,7 +507,8 @@ class QickExpression(QickVarType):
                 right = right.typecast(left)
         except TypeError:
             try:
-                left = left.typecast(right)
+                if isinstance(left, QickType):
+                    left = left.typecast(right)
             except TypeError:
                 raise TypeError('Could not create new QickExpression because '
                     'left and right could not be typecast.')
@@ -490,7 +516,10 @@ class QickExpression(QickVarType):
         self.left = left
         self.right = right
         self.operator = operator
-        self.held_type: QickConstType = left.qick_type()
+        if isinstance(left, QickType):
+            self.held_type: QickConstType = left.qick_type()
+        else:
+            self.held_type = None
 
     def __str__(self):
         raise ValueError('QickExpression cannot be converted into a string '
@@ -523,18 +552,132 @@ class QickExpression(QickVarType):
     def scopecast(self):
         """Change the scope of this object to the current scope."""
         self._connect_scope()
-        self.left.scopecast()
-        self.right.scopecast()
+        if isinstance(self.left, QickType):
+            self.left.scopecast()
+        if isinstance(self.right, QickType):
+            self.right.scopecast()
 
     def typecast(self, other: Union[QickType, Type]) -> QickExpression:
         """Return self converted into the type of other."""
         try:
-            left = self.left.typecast(other)
-            right = self.right.typecast(other)
+            if isinstance(self.left, QickType):
+                left = self.left.typecast(other)
+            else:
+                left = self.left
+
+            if isinstance(self.right, QickType):
+                right = self.right.typecast(other)
+            else:
+                right = self.right
+
         except TypeError as err:
             raise TypeError('QickExpression failed to typecast into new '
                 'type.') from err
         return type(self)(left=left, operator=self.operator, right=right)
+
+    def _to_sympy(self, regs: Dict):
+        """Create a sympy expression from a QickExpression.
+
+        Args:
+            regs: Dict mapping register _key() to register objects utilized
+                during the conversion
+
+        """
+        if isinstance(self.left, QickType):
+            left = self.left._to_sympy(regs=regs)
+        else:
+            left = self.left
+
+        if isinstance(self.right, QickType):
+            right = self.right._to_sympy(regs=regs)
+        else:
+            right = self.right
+
+        if self.operator == '+':
+            return left + right
+        elif self.operator == '-':
+            return left - right
+        elif self.operator == '*':
+            return left * right
+        else:
+            raise RuntimeError('Unknown operator.')
+
+    @staticmethod
+    def _from_sympy(exp: sympy.Expr, regs: Dict, qick_type: Union[int, QickType]):
+        """Create a QickExpression from a sympy expression.
+
+        Args:
+            regs: Dict mapping register _key() to register objects utilized
+                during the conversion
+            qick_type: Specific type of QickConstType objects in the original
+                QickExpression.
+
+        """
+        if isinstance(exp, sympy.core.add.Add) or \
+                isinstance(exp, sympy.core.mul.Mul):
+            # create new expressions with the args split in half
+            split = round(len(exp.args)/2)
+            left_args = exp.args[:split]
+            right_args = exp.args[split:]
+
+            # left side expression with half of the args
+            left_sympy_exp = type(exp)(*left_args)
+            left_qick_exp = QickExpression._from_sympy(
+                exp=left_sympy_exp,
+                regs=regs,
+                qick_type=qick_type
+            )
+
+            # right side expression with the other half of the args
+            right_sympy_exp = type(exp)(*right_args)
+            right_qick_exp = QickExpression._from_sympy(
+                exp=right_sympy_exp,
+                regs=regs,
+                qick_type=qick_type
+            )
+
+            if isinstance(exp, sympy.core.add.Add):
+                op = '+'
+            elif isinstance(exp, sympy.core.mul.Mul):
+                op = '*'
+
+            return QickExpression(
+                left=left_qick_exp,
+                operator=op,
+                right=right_qick_exp
+            )
+
+        elif isinstance(exp, sympy.core.power.Pow):
+            # TODO
+            raise RuntimeError('Exponentiation not yet implemented')
+        elif isinstance(exp, sympy.core.symbol.Symbol):
+            return regs[str(exp)]
+        elif isinstance(exp, sympy.core.numbers.Integer):
+            return int(exp)
+        elif isinstance(exp, sympy.core.numbers.Float):
+            return qick_type(val=float(exp))
+        else:
+            raise RuntimeError('Unrecognized expression type in sympy conversion.')
+
+    def simplify(self) -> QickExpression:
+        """Simplify a QickExpression using sympy."""
+
+        # store the mapping between register ids and register objects
+        # for later reconstructin of the expression
+        regs = {}
+        
+        # generate a sympy expression constructed from this expression
+        sym_exp = self._to_sympy(regs=regs)
+
+        # simplify the expression
+        sym_exp.simplify()
+
+        # convert the sympy expression back into a QickExpression
+        return QickExpression._from_sympy(
+            exp=sym_exp,
+            regs=regs,
+            qick_type=self.qick_type()
+        )
 
 class QickAssignment(QickObject):
     """Represents assignment of a value containing QickType to a register."""
@@ -546,6 +689,7 @@ class QickAssignment(QickObject):
             **kwargs
         ):
         """
+
         Args:
             reg: Register being assigned.
             rhs: Right-hand-side of register assignment.

@@ -1,7 +1,5 @@
 from numbers import Number
 
-from nspyre import nspyre_init_logger
-
 from qpc.compiler import QPC
 from qpc.board import qick_spin_4x2
 from qpc.io import QickIO, QickIODevice
@@ -200,11 +198,24 @@ def test20():
         code.add(QickSweep(code=t1 + t2, reg=swept_reg, inc_ref=True, name='sweep'))
     return code
 
+def test21():
+    code = QickCode(name='code')
+    with QickScope(code):
+        r0 = QickReg(val=QickTime(0e-9))
+        r1 = QickReg(val=QickTime(1e-9))
+        r2 = QickReg()
+        exp = \
+            (r0 + QickTime(4e-9)) + \
+            (r0 + QickTime(5e-9)) + \
+            (r0 + r1) + \
+            (r0 + QickTime(1e-9))
+        code.asm += '// unsimplified\n'
+        r2.assign(exp)
+        code.asm += '// simplified\n'
+        r2.assign(exp.simplify())
+    return code
+
 if __name__ == '__main__':
-    import logging
-
-    nspyre_init_logger(log_level=logging.INFO)
-
     with QPC(iomap=qick_spin_4x2, fake_soc=True) as qpc:
-        qpc.run(test6())
+        qpc.run(test21())
         input('Press enter to exit\n')

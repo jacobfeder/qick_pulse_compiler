@@ -149,7 +149,10 @@ class QPC(AbsQickProgram):
 
         # TODO check that regno does not exceed # of registers
 
-        if isinstance(exp.left, QickConstType):
+        if exp.operator == '*':
+            raise RuntimeError('* not yet implemented in the compiler.')
+
+        if isinstance(exp.left, QickConstType) or isinstance(exp.left, int):
             # left not allowed to be an immediate by the assembler
             # so we need to swap left / right
             if exp.operator == '-':
