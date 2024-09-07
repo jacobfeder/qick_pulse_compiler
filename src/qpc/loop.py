@@ -3,7 +3,7 @@ from typing import Union
 from typing import List
 from numbers import Number
 
-from qpc.type import QickScope, QickLabel, QickVarType, QickReg, QickSweptReg
+from qpc.type import QickScope, QickLabel, QickVarType, QickInt, QickReg, QickSweptReg
 from qpc.type import QickCode
 
 class QickLoop(QickCode):
@@ -58,8 +58,8 @@ class QickLoop(QickCode):
             self.loop_end_label = QickLabel(prefix='LOOP_END')
 
             if self.loops is not None:
-                self.loop_reg.assign(0)
-                self.nloops_reg.assign(loops)
+                self.loop_reg.assign(QickInt(0))
+                self.nloops_reg.assign(QickInt(loops))
 
             self.asm += f'{self.loop_start_label}:\n'
 
@@ -70,7 +70,7 @@ class QickLoop(QickCode):
             self.asm += str(code)
 
             if self.loops is not None:
-                self.loop_reg.assign(self.loop_reg + 1)
+                self.loop_reg.assign(self.loop_reg + QickInt(1))
 
             self.asm += f'JUMP {self.loop_start_label}\n'
 

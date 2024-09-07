@@ -40,11 +40,11 @@ class QickScope:
 
     def __enter__(self):
         if len(qpc_scope):
-            parent_soccfg = qpc_scope[-1].code.soccfg
-            this_soccfg = self.code.soccfg
-            if this_soccfg is None:
-                # inherit soccfg from parent scope
-                self.code.soccfg = parent_soccfg
+            parent_soc = qpc_scope[-1].code.soc
+            this_soc = self.code.soc
+            if this_soc is None:
+                # inherit soc from parent scope
+                self.code.soc = parent_soc
 
         qpc_scope.append(self)
         return self
@@ -161,16 +161,36 @@ class QickLabel(QickObject):
         super().__init__()
         self.prefix = prefix
 
-class QickType(QickObject, ABC):
-    """Fundamental types used in the qick firmware."""
+class QickType:
+    """Represents the type for a QickObject."""
+    def __init__(
+            self,
+            type_class: Type,
+            gen_ch: Optional[QickIODevice, QickIO, int] = None,
+            ro_ch: Optional[QickIODevice, QickIO, int] = None,
+        ):
+        """
+
+        Args:
+            type_class: Class associated with this time.
+            gen_ch: The generator channel associated with this object type.
+            ro_ch: The readout channel associated with this object type.
+
+        """
+        self.type_class = type_class
+        self.gen_ch = gen_ch
+        self.ro_ch = ro_ch
+
+class QickBaseType(QickObject, ABC):
+    """Base class for fundamental types used in the qick firmware."""
 
     @abstractmethod
-    def qick_type(self):
-        """Returns the type of this object."""
+    def qick_type(self) -> Optional[QickType]:
+        """Returns the QickType of this object."""
         pass
 
     @abstractmethod
-    def typecast(self, other: Union[QickType, Type]):
+    def typecast(self, other: Union[QickBaseType, Type]):
         """Return self converted into the qick type of other."""
         pass
 
@@ -178,56 +198,118 @@ class QickType(QickObject, ABC):
         """Change the scope of this object to the current scope."""
         self._connect_scope()
 
-    def qick_type_class(self, other: Union[QickType, Type]) -> Type:
-        """Similar to qick_type except it may also accept a class."""
-        if (isclass(other) and issubclass(other, QickType)) or other is None:
-            return other
-        elif isinstance(other, QickType):
-            return other.qick_type()
-        else:
-            raise TypeError('other must be an instance of QickType '
-                'or a subclass of QickType.')
-
-    def typecastable(self, other: Union[QickType, Type]) -> bool:
-        """Return true if self can be typecast into the qick type of other.
+    def typecastable(self, other: QickBaseType) -> bool:
+        """Return true if self can be typecast into the QickType of other.
 
         Args:
-            other: a QickType object or class.
+            other: A QickBaseType object.
 
         """
-        if self.qick_type() is None:
+        if self.qick_type().type_class is None:
             return True
-        elif other.qick_type() is None:
-            return True
+        elif other.qick_type().type_class is None:
+            return False
         else:
-            return self.qick_type() == self.qick_type_class(other)
+            return self.qick_type().type_class == other.qick_type().type_class
 
-class QickConstType(QickType):
+class QickConstType(QickBaseType, ABC):
     """Base class for types that have a constant value."""
-    def __init__(self, val: Number, *args, **kwargs):
+    def __init__(
+            self,
+            val: Number,
+            *args,
+            gen_ch: Optional[QickIODevice, QickIO, int] = None,
+            ro_ch: Optional[QickIODevice, QickIO, int] = None,
+            **kwargs
+        ):
         """
 
         Args:
             val: Value in SI units (s, Hz, etc.).
             args: Additional arguments passed to super constructor.
+            gen_ch: The generator channel associated with this object.
+            ro_ch: The readout channel associated with this object.
             kwargs: Additional keyword arguments passed to super constructor.
 
         """
         super().__init__(*args, **kwargs)
+
         if not isinstance(val, Number):
             raise TypeError('val must be a number.')
         self.val = val
+        self._qick_type = QickType(
+            type_class=self.__class__,
+            gen_ch=gen_ch,
+            ro_ch=ro_ch,
+        )
 
-    def qick_type(self) -> QickConstType:
-        return type(self)
+    def qick_type(self) -> Optional[QickType]:
+        """Returns the QickType of this object."""
+        return self._qick_type
 
-    def typecast(self, other: Union[QickType, Type]) -> QickConstType:
+    def typecast(self, other: QickBaseType) -> QickConstType:
         """Return a copy of self converted into the qick type of other."""
         if self.typecastable(other):
-            return self.qick_type_class(other)(val=self.val)
+            return other.qick_type().type_class(
+                val=self.val,
+                gen_ch=other.qick_type().gen_ch,
+                ro_ch=other.qick_type().ro_ch
+            )
         else:
             raise TypeError('Cannot cast to type of other because their types '
                 'are incompatible.')
+
+    def _gen_ro_ch(self) -> tuple[Optional[int], Optional[int]]:
+        """TODO"""
+        gen_ch = self.qick_type().gen_ch
+        if isinstance(gen_ch, QickIO):
+            if self.scope.code.iomap is None:
+                raise RuntimeError('iomap is not available.')
+            else:
+                gen_ch = self.scope.code.iomap.mappings[gen_ch.channel_type][gen_ch.channel].port
+        elif gen_ch is None or isinstance(gen_ch, int):
+            pass
+        else:
+            raise ValueError('gen_ch has an invalid type.')
+
+        ro_ch = self.qick_type().ro_ch
+        if isinstance(ro_ch, QickIO):
+            if self.scope.code.iomap is None:
+                raise RuntimeError('iomap is not available.')
+            else:
+                ro_ch = self.scope.code.iomap.mappings[ro_ch.channel_type][ro_ch.channel].port
+        elif ro_ch is None or isinstance(ro_ch, int):
+            pass
+        else:
+            raise ValueError('ro_ch has an invalid type.')
+
+        return (gen_ch, ro_ch)
+
+    def clocks(self) -> int:
+        """Convert to an integer number of device clock cycles."""
+        if self.scope.code.soc is None:
+            raise RuntimeError('Tried to convert to clock cycles but soc is '
+                'not available.')
+        else:
+            gen_ch, ro_ch = self._gen_ro_ch()
+            return self._clocks(gen_ch=gen_ch, ro_ch=ro_ch)
+
+    def _clocks(self, gen_ch: int, ro_ch: int) -> int:
+        """Convert to an integer number of device clock cycles. This should be
+        overriden by subclasses."""
+        raise RuntimeError('Tried to get the clocks() of an invalid type.')
+
+    def actual(self) -> Number:
+        """Convert to the actual value (in SI units) after rounding to the
+        nearest clock cycle."""
+        gen_ch, ro_ch = self._gen_ro_ch()
+        cycles = self._clocks(gen_ch=gen_ch, ro_ch=ro_ch)
+        return self._actual(cycles=cycles, gen_ch=gen_ch, ro_ch=ro_ch)
+
+    def _actual(self, cycles: int, gen_ch: int, ro_ch: int):
+        """Convert to the actual value (in SI units) after rounding to the
+        nearest clock cycle. This should be overriden by subclasses."""
+        raise RuntimeError('Tried to get the actual() of an invalid type.')
 
     def __add__(self, other) -> QickConstType:
         if isinstance(other, QickConstType):
@@ -240,7 +322,7 @@ class QickConstType(QickType):
         else:
             return NotImplemented
 
-        return self.qick_type()(val=self.val + other_val)
+        return self.qick_type().type_class(val=self.val + other_val)
 
     def __radd__(self, other) -> QickConstType:
         return self.__add__(other)
@@ -257,9 +339,9 @@ class QickConstType(QickType):
             return NotImplemented
 
         if swap:
-            return self.qick_type()(val=other_val - self.val)
+            return self.qick_type().type_class(val=other_val - self.val)
         else:
-            return self.qick_type()(val=self.val - other_val)
+            return self.qick_type().type_class(val=self.val - other_val)
 
     def __rsub__(self, other) -> QickConstType:
         return self.__sub__(other, swap=True)
@@ -275,7 +357,7 @@ class QickConstType(QickType):
         else:
             return NotImplemented
 
-        return self.qick_type()(val=self.val * other_val)
+        return self.qick_type().type_class(val=self.val * other_val)
 
     def __rmul__(self, other) -> QickConstType:
         return self.__mul__(other)
@@ -290,35 +372,68 @@ class QickConstType(QickType):
         """
         return self.val
 
+class QickInt(QickConstType):
+    """Represents an integer."""
+    pass
+
 class QickTime(QickConstType):
     """Represents a time."""
-    def typecastable(self, other: Union[QickType, Type]) -> bool:
-        if self.qick_type_class(other) is None:
-            return False
-        else:
-            return (issubclass(self.qick_type(), QickTime) and \
-                issubclass(self.qick_type_class(other), QickTime))
-
-class QickLength(QickTime):
-    """Represents the length of a pulse."""
-    def __init__(self, val: Number, *args, **kwargs):
-        """
+    def typecastable(self, other: QickBaseType) -> bool:
+        """Return true if self can be typecast into the QickType of other.
 
         Args:
-            val: Length (s).
-            args: Additional arguments passed to super constructor.
-            kwargs: Additional keyword arguments passed to super constructor.
+            other: A QickBaseType object.
 
         """
-        super().__init__(*args, val=val, **kwargs)
-        # TODO need to integrate type checking for correct channel number
-        # when doing ops on regs
+        if self.qick_type().type_class is None:
+            return True
+        elif other.qick_type().type_class is None:
+            return False
+        else:
+            # freely convert between other types of QickTimes
+            return issubclass(self.qick_type().type_class, QickTime) and \
+                issubclass(other.qick_type().type_class, QickTime)
+
+    def _clocks(self, gen_ch: Optional[int], ro_ch: Optional[int]):
+        """Convert to an integer number of device clock cycles."""
+        import pdb; pdb.set_trace()
+        return self.scope.code.soc.us2cycles(
+            us=self.val * 1e6,
+            gen_ch=gen_ch,
+            ro_ch=ro_ch
+        )
+
+    def _actual(self, cycles: int, gen_ch: Optional[int], ro_ch: Optional[int]):
+        """Convert to the actual value (in SI units) after rounding to the
+        nearest clock cycle."""
+        return self.scope.code.soc.cycles2us(
+            cycles=cycles,
+            gen_ch=gen_ch,
+            ro_ch=ro_ch
+        ) / 1e6
 
 class QickFreq(QickConstType):
     """Represents a frequency."""
-    pass
+    def _clocks(self, gen_ch: Optional[int], ro_ch: Optional[int]):
+        """Convert to an integer number of device clock cycles."""
+        if gen_ch is None:
+            raise RuntimeError('QickFreq was never associated with a '
+                'generator channel.')
+        return self.scope.code.soc.freq2reg(
+            f=self.val / 1e6,
+            gen_ch=gen_ch,
+            ro_ch=ro_ch
+        )
 
-class QickVarType(QickType):
+    def _actual(self, cycles: int, gen_ch: Optional[int], ro_ch: Optional[int]):
+        """Convert to the actual value (in SI units) after rounding to the
+        nearest clock cycle."""
+        return self.scope.code.soc.reg2freq(
+            r=cycles,
+            gen_ch=gen_ch,
+        ) * 1e6
+
+class QickVarType(QickBaseType):
     """Base class for variable types."""
     def __init__(self, *args, **kwargs):
         """
@@ -329,9 +444,9 @@ class QickVarType(QickType):
 
         """
         super().__init__(*args, **kwargs)
-        self.held_type: Optional[QickConstType] = None
+        self.held_type: Optional[QickType] = QickType(type_class=None)
 
-    def qick_type(self) -> Optional[QickConstType]:
+    def qick_type(self) -> Optional[QickType]:
         return self.held_type
 
     def __add__(self, other) -> QickExpression:
@@ -339,7 +454,9 @@ class QickVarType(QickType):
             raise TypeError('Cannot add these QickVarType because their '
                 'types are not compatible.')
 
-        return QickExpression(left=self, operator='+', right=other).simplify()
+        # TODO
+        # return QickExpression(left=self, operator='+', right=other).simplify()
+        return QickExpression(left=self, operator='+', right=other)
 
     def __radd__(self, other) -> QickExpression:
         return self.__add__(other)
@@ -351,9 +468,13 @@ class QickVarType(QickType):
 
         # swap the orientation if called from __rsub__
         if swap:
-            return QickExpression(left=other, operator='-', right=self).simplify()
+            # TODO
+            # return QickExpression(left=other, operator='-', right=self).simplify()
+            return QickExpression(left=other, operator='-', right=self)
         else:
-            return QickExpression(left=self, operator='-', right=other).simplify()
+            # TODO
+            # return QickExpression(left=self, operator='-', right=other).simplify()
+            return QickExpression(left=self, operator='-', right=other)
 
     def __rsub__(self, other) -> QickExpression:
         return self.__add__(other, swap=True)
@@ -370,7 +491,7 @@ class QickReg(QickVarType):
     def __init__(
             self,
             *args,
-            val: Optional[QickType] = None,
+            val: Optional[QickBaseType] = None,
             reg: Optional[str] = None,
             **kwargs
         ):
@@ -393,31 +514,44 @@ class QickReg(QickVarType):
         """Regs don't get their scope changed - do nothing."""
         pass
 
-    def typecast(self, other: Union[QickType, Type]) -> QickReg:
-        """Convert self into the qick type of other."""
-        if self.held_type is None:
-            self.held_type = self.qick_type_class(other)
-            return self
+    def typecastable(self, other: QickBaseType) -> bool:
+        """Return true if self can be typecast into the QickType of other.
 
-        if self.qick_type() == self.qick_type_class(other):
+        Args:
+            other: A QickBaseType object.
+
+        """
+        if self.qick_type().type_class is None:
+            return True
+        elif other.qick_type().type_class is None:
+            return False
+        else:
+            # registers require stricter typecasting rules than other objects
+            # the class, gen, and ro channels must all match
+            # this prevents a situation such as, e.g.:
+            # r0 = 5 clock cycles (in units of generator 0)
+            # r1 = 10 clock cycles (in units of generator 1)
+            # r2 = r0 + r1 (this would be an invalid result!)
+            return self.qick_type().type_class == other.qick_type().type_class and \
+                self.qick_type().gen_ch == other.qick_type().gen_ch and \
+                self.qick_type().ro_ch == other.qick_type().ro_ch
+
+    def typecast(self, other: QickBaseType) -> QickReg:
+        """Convert self into the QickType of other."""
+        if self.typecastable(other):
+            self.held_type = other.qick_type()
             return self
         else:
-            raise TypeError('QickReg cannot be typecast.')
+            raise TypeError('QickReg could not be typecast.')
 
-    def _assign(self, value: Union[int, QickType]):
-        if self.held_type is None:
-            if isinstance(value, QickType):
-                self.held_type = value.qick_type()
-            elif isinstance(value, int):
-                self.held_type = None
-            else:
-                raise TypeError('value must be a QickType or int.')
+    def _assign(self, value: QickBaseType):
+        if self.typecastable(value):
+            assignment = QickAssignment(reg=self.typecast(value), rhs=value)
+            return str(assignment)
+        else:
+            raise TypeError('reg cannot be typecast into QickType of value.')
 
-        assignment = QickAssignment(reg=self, rhs=value)
-
-        return str(assignment)
-
-    def assign(self, value: Union[int, QickType]):
+    def assign(self, value: QickBaseType):
         """Assign a value to a register.
 
         Args:
@@ -459,9 +593,9 @@ class QickSweptReg(QickReg):
     """Represents the arguments to a swept variable."""
     def __init__(
             self,
-            start: Union[int, QickConstType, QickVarType],
-            stop: Union[int, QickConstType, QickVarType],
-            step: Union[int, QickConstType, QickVarType],
+            start: Union[QickConstType, QickVarType],
+            stop: Union[QickConstType, QickVarType],
+            step: Union[QickConstType, QickVarType],
             *args,
             **kwargs
         ):
@@ -481,12 +615,12 @@ class QickSweptReg(QickReg):
         self.step = step
 
 class QickExpression(QickVarType):
-    """Represents a mathematical expression containing QickType."""
+    """Represents a mathematical expression containing QickBaseType."""
     def __init__(
             self,
-            left: Union[int, QickType],
+            left: QickBaseType,
             operator: str,
-            right: Union[int, QickType],
+            right: QickBaseType,
             *args,
             **kwargs
         ):
@@ -503,23 +637,18 @@ class QickExpression(QickVarType):
 
         # make sure left and right have the same qick type
         try:
-            if isinstance(right, QickType):
-                right = right.typecast(left)
+            right = right.typecast(left)
         except TypeError:
             try:
-                if isinstance(left, QickType):
-                    left = left.typecast(right)
+                left = left.typecast(right)
             except TypeError:
                 raise TypeError('Could not create new QickExpression because '
-                    'left and right could not be typecast.')
+                    'left and right could not be typecast to the same type.')
 
         self.left = left
         self.right = right
         self.operator = operator
-        if isinstance(left, QickType):
-            self.held_type: QickConstType = left.qick_type()
-        else:
-            self.held_type = None
+        self.held_type: QickType = left.qick_type()
 
     def __str__(self):
         raise ValueError('QickExpression cannot be converted into a string '
@@ -538,9 +667,9 @@ class QickExpression(QickVarType):
 
         """
         super()._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
-        if isinstance(self.left, QickType):
+        if isinstance(self.left, QickBaseType):
             self.left._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
-        if isinstance(self.right, QickType):
+        if isinstance(self.right, QickBaseType):
             self.right._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
 
     def pre_asm_key(self) -> str:
@@ -552,20 +681,20 @@ class QickExpression(QickVarType):
     def scopecast(self):
         """Change the scope of this object to the current scope."""
         self._connect_scope()
-        if isinstance(self.left, QickType):
+        if isinstance(self.left, QickBaseType):
             self.left.scopecast()
-        if isinstance(self.right, QickType):
+        if isinstance(self.right, QickBaseType):
             self.right.scopecast()
 
-    def typecast(self, other: Union[QickType, Type]) -> QickExpression:
+    def typecast(self, other: Union[QickBaseType, Type]) -> QickExpression:
         """Return self converted into the type of other."""
         try:
-            if isinstance(self.left, QickType):
+            if isinstance(self.left, QickBaseType):
                 left = self.left.typecast(other)
             else:
                 left = self.left
 
-            if isinstance(self.right, QickType):
+            if isinstance(self.right, QickBaseType):
                 right = self.right.typecast(other)
             else:
                 right = self.right
@@ -583,12 +712,12 @@ class QickExpression(QickVarType):
                 during the conversion
 
         """
-        if isinstance(self.left, QickType):
+        if isinstance(self.left, QickBaseType):
             left = self.left._to_sympy(regs=regs)
         else:
             left = self.left
 
-        if isinstance(self.right, QickType):
+        if isinstance(self.right, QickBaseType):
             right = self.right._to_sympy(regs=regs)
         else:
             right = self.right
@@ -603,7 +732,7 @@ class QickExpression(QickVarType):
             raise RuntimeError('Unknown operator.')
 
     @staticmethod
-    def _from_sympy(exp: sympy.Expr, regs: Dict, qick_type: Union[int, QickType]):
+    def _from_sympy(exp: sympy.Expr, regs: Dict, qick_type: QickBaseType):
         """Create a QickExpression from a sympy expression.
 
         Args:
@@ -680,11 +809,11 @@ class QickExpression(QickVarType):
         )
 
 class QickAssignment(QickObject):
-    """Represents assignment of a value containing QickType to a register."""
+    """Represents assignment of a value containing QickBaseType to a register."""
     def __init__(
             self,
             reg: QickReg,
-            rhs: Union[int, QickType],
+            rhs: Union[int, QickBaseType],
             *args,
             **kwargs
         ):
@@ -715,10 +844,10 @@ class QickAssignment(QickObject):
         """
         super()._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
         self.reg._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
-        if isinstance(self.rhs, QickType):
+        if isinstance(self.rhs, QickBaseType):
             self.rhs._qick_copy(scopes=scopes, new_ids=new_ids, new_ids_lut=new_ids_lut)
 
-    def qick_type(self) -> Optional[QickConstType]:
+    def qick_type(self) -> Optional[QickType]:
         return self.rhs.qick_type()
 
     def scopecast(self):
@@ -727,14 +856,14 @@ class QickAssignment(QickObject):
         self.reg.scopecast()
         self.rhs.scopecast()
 
-    def typecast(self, other: Union[QickType, Type]) -> QickExpression:
-        """Return self converted into the type of other."""
-        try:
-            typecast_rhs = self.rhs.typecast(other)
-        except TypeError as err:
-            raise TypeError('QickAssignment failed to typecast into new '
-                'type.') from err
-        return type(self)(reg=self.reg, rhs=typecast_rhs)
+    def typecastable(self, other: QickBaseType) -> bool:
+        """Return true if self can be typecast into the QickType of other.
+
+        Args:
+            other: a QickBaseType object.
+
+        """
+        return False
 
 class QickCode(QickObject):
     """Represents a segment of qick code. There are two components. The first
@@ -747,10 +876,11 @@ class QickCode(QickObject):
     """
     def __init__(
             self,
-            offset: Optional[Number, QickType] = None,
-            length: Optional[Number, QickType] = None,
+            offset: Optional[Number, QickBaseType] = None,
+            length: Optional[Number, QickBaseType] = None,
             name: Optional[str] = None,
-            soccfg: Optional[QickConfig] = None,
+            soc: Optional[QickConfig] = None,
+            iomap: Optional[QickIOMap] = None,
             *args,
             **kwargs
         ):
@@ -761,7 +891,8 @@ class QickCode(QickObject):
             length: Length of code block.
             name: Optional name that will be added as a comment at the top of
                 the code segment.
-            soccfg: Qick firmware config.
+            soc: Qick SoC object.
+            iomap: Mapping between input/output names and their firmware ports.
             args: Additional arguments passed to super constructor.
             kwargs: Additional keyword arguments passed to super constructor.
 
@@ -773,7 +904,8 @@ class QickCode(QickObject):
         self.kvp = {}
 
         self.name = name
-        self.soccfg = soccfg
+        self.soc = soc
+        self.iomap = iomap
 
         with QickScope(code=self):
             # length of code block
@@ -820,7 +952,7 @@ class QickCode(QickObject):
             ref_reg.assign(self.length)
             self.asm += f'TIME inc_ref {ref_reg}\n'
 
-    def update_key(self, old_key: str, new_obj: QickType):
+    def update_key(self, old_key: str, new_obj: QickBaseType):
         """Update the given key in the assembly code and key-value pair
         dictionary of this QickCode, and then recursively for all QickCode
         within this QickCode.
@@ -901,10 +1033,7 @@ class QickCode(QickObject):
             number and the offset is the total offset of the port.
 
         """
-        if isinstance(io, QickIODevice):
-            port_offset = QickTime(io.total_offset())
-            port = io.io.key()
-        elif isinstance(io, QickIO):
+        if isinstance(io, QickIO):
             port_offset = QickTime(io.offset)
             port = io.key()
         elif isinstance(io, int):
@@ -947,27 +1076,44 @@ class QickCode(QickObject):
             else:
                 self.asm += f'TRIG clr p{port}\n'
 
-    def sig_gen_conf(self, outsel = 'product', mode = 'oneshot', stdysel='zero', phrst = 0) -> int:
+    def sig_gen_conf(
+            self,
+            outsel = 'dds',
+            mode = 'oneshot',
+            stdysel = 'zero',
+            phrst = 0
+        ) -> int:
+        """Return the firmware register value for the given signal
+        generator config settings.
+
+        Args:
+            outsel: TODO
+            mode:
+            stdysel:
+            phrst:
+
+        """
         outsel_reg = {'product': 0, 'dds': 1, 'input': 2, 'zero': 3}[outsel]
         mode_reg = {'oneshot': 0, 'periodic': 1}[mode]
         stdysel_reg = {'last': 0, 'zero': 1}[stdysel]
 
         mc = phrst * 0b10000 + stdysel_reg * 0b01000 + mode_reg * 0b00100 + outsel_reg
-        return mc
+        return QickInt(mc)
 
-    def rf_square_pulse(
+    def rf_pulse(
             self,
             ch: Union[QickIODevice, QickIO, int],
             length: Optional[Union[Number, QickTime, QickVarType]],
             freq: Optional[Union[Number, QickFreq, QickVarType]],
-            amp: Optional[int],
+            amp: Optional[int, QickInt],
             time: Optional[Union[Number, QickTime, QickVarType]],
+            **conf,
         ):
-        """Generate a square RF pulse.
+        """Generate an RF pulse.
 
         Args:
             ch: QickIODevice, QickIO, or port to output an RF pulse.
-            length: Length of the RF pulse. Pass a time (s), QickLength,
+            length: Length of the RF pulse. Pass a time (s), QickTime,
                 QickReg, QickExpression. Set to None to use the value
                 currently in w_length.
             freq: RF frequency of the pulse. Pass a frequency (s), QickFreq,
@@ -978,6 +1124,8 @@ class QickCode(QickObject):
             time: Time at which to play the pulse. Pass a time (s), QickTime,
                 QickReg, QickExpression. Set to None to use the value
                 currently in out_usr_time.
+            conf: Keyword arguments to pass to sig_gen_conf(). Otherwise the
+                default values will be used.
 
         """
         with QickScope(code=self):
@@ -994,30 +1142,39 @@ class QickCode(QickObject):
 
             if length is not None:
                 if isinstance(length, Number):
-                    length = QickLength(val=length)
+                    length = QickTime(val=length, gen_ch=ch)
+                elif isinstance(length, QickTime):
+                    if length.gen_ch is None:
+                        # set the gen_ch if it wasn't set yet
+                        length.gen_ch = ch
                 # set the length of the pulse
                 w_length = QickReg(reg='w_length')
                 w_length.assign(length)
 
             if freq is not None:
                 if isinstance(freq, Number):
-                    freq = QickFreq(freq)
+                    freq = QickFreq(freq, gen_ch=ch)
+                elif isinstance(freq, QickFreq):
+                    if freq.gen_ch is None:
+                        freq.gen_ch = ch
                 # set the frequency of the pulse
                 w_freq = QickReg(reg='w_freq')
                 w_freq.assign(freq)
 
             if amp is not None:
+                if isinstance(amp, int):
+                    amp = QickInt(amp)
                 # set the amplitude of the pulse
                 w_gain = QickReg(reg='w_gain')
                 w_gain.assign(amp)
 
             # set the configuration settings of the pulse
             w_conf = QickReg(reg='w_conf')
-            w_conf.assign(self.sig_gen_conf(outsel='dds', mode='oneshot', stdysel='zero', phrst=0))
+            w_conf.assign(self.sig_gen_conf(**conf))
 
             self.asm += f'WPORT_WR p{port} r_wave\n'
 
-    def epoch_offset(self, offset: QickType):
+    def epoch_offset(self, offset: QickBaseType):
         """Find all out_usr_time assignments and offset them.
 
         Args:

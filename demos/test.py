@@ -4,7 +4,7 @@ from qpc.compiler import QPC
 from qpc.board import qick_spin_4x2
 from qpc.io import QickIO, QickIODevice
 from qpc.loop import QickLoop, QickSweep
-from qpc.pulse import Delay, TrigConst, TrigPulse, RFSquarePulse
+from qpc.pulse import Delay, TrigConst, TrigPulse, RFPulse
 from qpc.type import QickCode, QickScope, QickReg, QickSweptReg, QickTime
 
 pmod0_0 = QickIO(channel_type='trig', channel='PMOD0_0', offset=0)
@@ -81,7 +81,7 @@ def test4():
     return code1 + code2
 
 def test5():
-    return TrigPulse(ch=1, length=2e-6)
+    return TrigPulse(ch=0, length=2e-6)
 
 def test6():
     t1 = TrigPulse(ch=0, length=1e-6, name='t1')
@@ -94,12 +94,12 @@ def test7():
     return t1 | t2
 
 def test8():
-    rf1 = RFSquarePulse(ch=0, length=1e-6, freq=100e6, amp=1_000)
+    rf1 = RFPulse(ch=0, length=1e-6, freq=100e6, amp=10_000)
     return rf1
 
 def test9():
-    rf1 = RFSquarePulse(ch=0, length=1e-6, freq=100e6, amp=1_000, name='rf1')
-    rf2 = RFSquarePulse(ch=1, length=2e-6, freq=None, amp=None, name='rf2')
+    rf1 = RFPulse(ch=0, length=1e-6, freq=100e6, amp=10_000, name='rf1')
+    rf2 = RFPulse(ch=1, length=2e-6, freq=None, amp=None, name='rf2')
     return rf1 + rf2
 
 def test10():
@@ -213,6 +213,6 @@ def test21():
     return code
 
 if __name__ == '__main__':
-    with QPC(iomap=qick_spin_4x2, fake_soc=True) as qpc:
-        qpc.run(test21())
+    with QPC(iomap=qick_spin_4x2, fake_soc=False) as qpc:
+        qpc.run(test8())
         input('Press enter to exit\n')

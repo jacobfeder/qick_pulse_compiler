@@ -17,12 +17,12 @@ pmod1_3 = QickIO(channel_type='trig', channel='PMOD1_3', offset=0)
 
 # RFSoC digital output "trigger" channels
 trig_channels = {
-    'laser_1':  QickIODevice(io=pmod0_0, offset=0),
-    'laser_2':  QickIODevice(io=pmod0_1, offset=0),
-    'laser_3':  QickIODevice(io=pmod0_2, offset=0),
+    'laser_1':  QickIODevice(io=pmod0_4, offset=0),
+    'laser_2':  QickIODevice(io=pmod0_5, offset=0),
+    'laser_3':  QickIODevice(io=pmod0_6, offset=0),
 }
 
-dac_a = QickIO(channel_type='dac', channel='DAC_A', offset=0e-9)
+dac_a = QickIO(channel_type='dac', channel='DAC_A', offset=-75e-9)
 
 # channel mapping for RFSoC RF/DAC outputs
 dac_channels = {

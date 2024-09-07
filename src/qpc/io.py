@@ -29,10 +29,10 @@ class QickIO:
         self.channel = channel
         self.offset = offset
 
-    def key(self):
+    def key(self) -> str:
         return f'*{self.channel}*'
 
-class QickIODevice:
+class QickIODevice(QickIO):
     """Represents a device connected to an RFSoC input / output."""
     def __init__(self, io: QickIO, offset: Number):
         """
@@ -41,12 +41,10 @@ class QickIODevice:
             offset: Offset that this device adds (s).
 
         """
-        self.io = io
-        self.offset = offset
-
-    def total_offset(self) -> float:
-        """Return the total offset of the device including the IO port."""
-        return self.offset + self.io.offset
+        super().__init__(
+            channel_type=io.channel_type,
+            channel=io.channel,
+            offset=io.offset + offset)
 
 TriggerPort = namedtuple('TriggerPort', ['port'])
 DataPort = namedtuple('DataPort', ['port', 'bit'])

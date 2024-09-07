@@ -3,7 +3,7 @@ from numbers import Number
 from qpc.board import qick_spin_4x2
 from qpc.compiler import QPC
 from qpc.loop import QickLoop, QickSweep
-from qpc.pulse import Delay, RFSquarePulse, TrigPulse
+from qpc.pulse import Delay, RFPulse, TrigPulse
 from qpc.type import QickTime, QickFreq, QickReg, QickSweptReg, QickScope, QickCode
 
 from config import trig_channels
@@ -50,15 +50,15 @@ class PulsedODMR(QickCode):
 
         with QickScope(code=self):
             freq_reg = QickSweptReg(
-                start=QickFreq(freq_start),
-                stop=QickFreq(freq_stop),
-                step=QickFreq(freq_step)
+                start=QickFreq(freq_start, gen_ch=dac_channels['sample']),
+                stop=QickFreq(freq_stop, gen_ch=dac_channels['sample']),
+                step=QickFreq(freq_step, gen_ch=dac_channels['sample'])
             )
 
             mw_on = \
                 init + \
                 Delay(length=mw_pre_padding, name='mw_pre_padding') + \
-                RFSquarePulse(ch=dac_channels['sample'], length=mw_len, freq=freq_reg, amp=amp) + \
+                RFPulse(ch=dac_channels['sample'], length=mw_len, freq=freq_reg, amp=amp) + \
                 Delay(length=mw_post_padding, name='mw_post_padding') + \
                 readout
 
@@ -88,24 +88,24 @@ class PulsedODMR(QickCode):
         self.add(experiment_loop)
 
 if __name__ == '__main__':
-    with QPC(iomap=qick_spin_4x2, fake_soc=True) as qpc:
+    with QPC(iomap=qick_spin_4x2) as qpc:
         code = PulsedODMR(
-            loops=10,
-            amp=1_000,
+            loops=1,
+            amp=10_000,
             freq_start=50e6,
-            freq_stop=151e6,
+            freq_stop=101e6,
             freq_step=50e6,
             init=TrigPulse(
                 ch=trig_channels['laser_1'],
-                length=1e-6,
+                length=0.9e-6,
                 name='init'
             ),
             readout=TrigPulse(
                 ch=trig_channels['laser_2'],
-                length=1e-6,
+                length=0.9e-6,
                 name='readout'
             ),
-            soccfg=qpc.soccfg,
+            soc=qpc.soc,
         )
 
         qpc.run(code)

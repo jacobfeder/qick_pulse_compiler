@@ -31,8 +31,9 @@ else:
     local_soc = True
 from qick.tprocv2_assembler import Assembler
 
-from qpc.type import QickType, QickConstType, QickLabel, QickTime, QickFreq, QickReg
-from qpc.type import QickExpression, QickAssignment, QickScope, QickCode
+from qpc.type import QickType, QickConstType, QickInt, QickLabel, QickTime
+from qpc.type import QickFreq, QickReg, QickExpression, QickAssignment
+from qpc.type import QickScope, QickCode
 from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
@@ -202,6 +203,11 @@ class QPC(AbsQickProgram):
         """
         asm = code.asm
 
+        if code.iomap is None:
+            code.iomap = self.iomap
+        if code.soc is None:
+            code.soc = self.soc
+
         # add name header
         if code.name is not None:
             asm = f'// ---------------\n// {code.name}\n// ---------------\n' + asm
@@ -236,13 +242,13 @@ class QPC(AbsQickProgram):
 
         # compile the rest of the non-code objects
         for key, qick_obj in code.kvp.items():
-            if isinstance(qick_obj, QickTime):
-                asm = asm.replace(key, str(self.soc.us2cycles(qick_obj.val * 1e6)))
+            if isinstance(qick_obj, QickTime) or isinstance(qick_obj, QickFreq):
+                asm = asm.replace(key, str(qick_obj.clocks()))
+            elif isinstance(qick_obj, QickInt):
+                asm = asm.replace(key,str(qick_obj.val))
             elif isinstance(qick_obj, QickLabel):
                 asm = asm.replace(key, f'{qick_obj.prefix}_{labelno}')
                 labelno += 1
-            elif isinstance(qick_obj, QickFreq):
-                asm = asm.replace(key, str(self.soc.freq2reg(qick_obj.val / 1e6)))
             elif isinstance(qick_obj, QickReg):
                 if qick_obj.reg is None:
                     asm = asm.replace(key, f'r{regno}')
@@ -281,7 +287,7 @@ class QPC(AbsQickProgram):
             # add a NOP to the beginning of the program
             wrapper_code.asm += 'NOP\n'
             # add a short inc_ref to the beginning of the program
-            wrapper_code.asm += f'TIME inc_ref #{int(self.soc.us2cycles(100))}\n'
+            wrapper_code.asm += f'TIME inc_ref #{QickTime(100e-6)}\n'
 
             # wrap the code
             wrapper_code.asm += str(code)
@@ -347,7 +353,7 @@ class QPC(AbsQickProgram):
 
     def off_prog(self) -> QickCode:
         """A program that outputs 0's on all ports."""
-        off_code = QickCode(name='off program')
+        off_code = QickCode(name='off program', soc=self.soc)
         with QickScope(off_code):
             # disable all trig ports
             for p in self.iomap.trigger_ports():
@@ -355,7 +361,7 @@ class QPC(AbsQickProgram):
 
             # write 0 waveform into all WPORTs
             for p in self.iomap.dac_ports():
-                off_code.rf_square_pulse(ch=p, length=1e-6, freq=100e6, amp=0, time=0)
+                off_code.rf_pulse(ch=p, length=1e-6, freq=100e6, amp=0, time=0)
 
             # disable all DPORTs
             off_code.asm += '// write 0 into all DPORTs\n'

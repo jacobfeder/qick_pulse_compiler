@@ -67,7 +67,7 @@ class TrigPulse(QickCode):
             self.trig(ch=ch, state=True, time=0)
             self.trig(ch=ch, state=False, time=length)
 
-class RFSquarePulse(QickCode):
+class RFPulse(QickCode):
     def __init__(
         self,
         ch: Union[QickIODevice, QickIO, int],
@@ -78,7 +78,7 @@ class RFSquarePulse(QickCode):
         *args,
         **kwargs,
     ):
-        """An RF square pulse.
+        """An RF pulse.
 
         Args:
             ch: QickIODevice, QickIO, or port to output an RF pulse.
@@ -99,7 +99,7 @@ class RFSquarePulse(QickCode):
             kwargs['name'] = 'rf pulse'
         super().__init__(*args, length=length, **kwargs)
 
-        self.rf_square_pulse(
+        self.rf_pulse(
             ch=ch,
             length=length,
             freq=freq,
@@ -117,7 +117,7 @@ class RFSquarePulse(QickCode):
 #         *args,
 #         **kwargs
 #     ):
-#         """An RF square pulse.
+#         """An RF pulse.
 
 #         Args:
 #             ch: QickIODevice, QickIO, or port to output an RF pulse.
@@ -132,7 +132,7 @@ class RFSquarePulse(QickCode):
 #             addr=0
 #         )
 
-#         self.rf_square_pulse(ch=ch, time=0, length=length, freq=freq, amp=amp)
+#         self.rf_pulse(ch=ch, time=0, length=length, freq=freq, amp=amp)
 
 # def sawtooth(length=16, maxv=30000, repeat=1):
 #     """

@@ -9,14 +9,13 @@ from qpc.type import QickTime, QickFreq, QickReg, QickSweptReg, QickScope, QickC
 from config import trig_channels
 from config import dac_channels
 
-class T1(QickCode):
+class Rabi(QickCode):
     def __init__(
         self,
         loops: int,
-        tau_start: Number,
-        tau_stop: Number,
-        tau_step: Number,
-        pi_time: Number,
+        mw_start: Number,
+        mw_stop: Number,
+        mw_step: Number,
         amp: int,
         freq: Number,
         init: QickCode,
@@ -26,14 +25,13 @@ class T1(QickCode):
         mw_post_padding: Number = 100e-9,
         **kwargs
     ):
-        """T1 sequence.
+        """Rabi sequence.
 
         Args:
             loops: Number of experiment repeats.
-            tau_start: Start tau (s).
-            tau_stop: Stop tau (s).
-            tau_step: Tau step size (s).
-            pi_time: Pi pulse duration.
+            mw_start: Microwave pulse initial length (s).
+            mw_stop: Microwave pulse final length (s).
+            mw_step: Microwave pulse length step size (s).
             amp: RF amplitude in DAC units.
             freq: Drive frequency (Hz).
             init: Initialization sequence.
@@ -47,50 +45,48 @@ class T1(QickCode):
 
         """
         if 'name' not in kwargs:
-            kwargs['name'] = 'T1'
+            kwargs['name'] = 'rabi'
 
         super().__init__(*args, **kwargs)
 
         with QickScope(code=self):
-            tau_reg = QickSweptReg(
-                start=QickTime(tau_start),
-                stop=QickTime(tau_stop),
-                step=QickTime(tau_step)
+            mw_reg = QickSweptReg(
+                start=QickTime(mw_start),
+                stop=QickTime(mw_stop),
+                step=QickTime(mw_step)
             )
 
-            pi_pulse = RFPulse(
+            mw_pulse = RFPulse(
                 ch=dac_channels['sample'],
-                length=pi_time,
+                length=mw_reg,
                 freq=freq,
                 amp=amp,
-                name='pi',
+                name='mw',
             )
 
-            pi = \
+            w_mw = \
                 init + \
                 Delay(length=mw_pre_padding, name='mw_pre_padding') + \
-                Delay(length=tau_reg, name='tau 1') + \
-                pi_pulse + \
+                mw_pulse + \
                 Delay(length=mw_post_padding, name='mw_post_padding') + \
                 readout
 
-            no_pi = \
+            no_mw = \
                 init + \
                 Delay(length=mw_pre_padding, name='mw_pre_padding') + \
-                Delay(length=tau_reg, name='tau_1') + \
-                Delay(length=pi_time, name='pi_delay') + \
+                Delay(length=mw_reg, name='no mw') + \
                 Delay(length=mw_post_padding, name='mw_post_padding') + \
                 readout
 
-            tau_sweep = QickSweep(
-                code=pi + no_pi,
-                reg=tau_reg,
+            mw_sweep = QickSweep(
+                code=w_mw + no_mw,
+                reg=mw_reg,
                 inc_ref=True,
-                name='tau sweep'
+                name='microwave sweep'
             )
 
             experiment_loop = QickLoop(
-                code=tau_sweep,
+                code=mw_sweep,
                 loops=loops,
                 inc_ref=False,
                 name='loop',
@@ -99,22 +95,21 @@ class T1(QickCode):
 
 if __name__ == '__main__':
     with QPC(iomap=qick_spin_4x2) as qpc:
-        code = T1(
-            loops=10,
-            tau_start=1e-6,
-            tau_stop=100e-6,
-            tau_step=10e-6,
-            pi_time=20e-9,
-            amp=1_000,
+        code = Rabi(
+            loops=1,
+            mw_start=10e-9,
+            mw_stop=100e-9,
+            mw_step=4e-9,
+            amp=10_000,
             freq=200e6,
             init=TrigPulse(
                 ch=trig_channels['laser_1'],
-                length=1e-6,
+                length=0.9e-6,
                 name='init'
             ),
             readout=TrigPulse(
                 ch=trig_channels['laser_2'],
-                length=1e-6,
+                length=0.9e-6,
                 name='readout'
             ),
             soccfg=qpc.soccfg,

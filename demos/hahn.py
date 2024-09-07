@@ -3,7 +3,7 @@ from numbers import Number
 from qpc.board import qick_spin_4x2
 from qpc.compiler import QPC
 from qpc.loop import QickLoop, QickSweep
-from qpc.pulse import Delay, RFSquarePulse, TrigPulse
+from qpc.pulse import Delay, RFPulse, TrigPulse
 from qpc.type import QickTime, QickFreq, QickReg, QickSweptReg, QickScope, QickCode
 
 from config import trig_channels
@@ -58,7 +58,7 @@ class HahnEcho(QickCode):
                 step=QickTime(tau_step)
             )
 
-            pi_pulse = RFSquarePulse(
+            pi_pulse = RFPulse(
                 ch=dac_channels['sample'],
                 length=pi_time,
                 freq=freq,
@@ -66,7 +66,7 @@ class HahnEcho(QickCode):
                 name='pi',
             )
 
-            pos_pi2_pulse = RFSquarePulse(
+            pos_pi2_pulse = RFPulse(
                 ch=dac_channels['sample'],
                 length=pi_time/2,
                 freq=freq,
@@ -74,7 +74,7 @@ class HahnEcho(QickCode):
                 name='pi/2',
             )
 
-            neg_pi2_pulse = RFSquarePulse(
+            neg_pi2_pulse = RFPulse(
                 ch=dac_channels['sample'],
                 length=pi_time/2,
                 freq=freq,
