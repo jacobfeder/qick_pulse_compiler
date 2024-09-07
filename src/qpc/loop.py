@@ -121,7 +121,7 @@ class QickSweep(QickCode):
             self.sweep_reg = reg
 
             # the current value of the sweep
-            self.asm += '// sweep reg start\n'
+            self.asm += '// sweep start\n'
             self.asm += self.sweep_reg._assign(self.sweep_reg.start)
             # the max value of the sweep
             self.asm += '// sweep stop\n'

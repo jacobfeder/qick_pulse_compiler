@@ -396,7 +396,6 @@ class QickTime(QickConstType):
 
     def _clocks(self, gen_ch: Optional[int], ro_ch: Optional[int]):
         """Convert to an integer number of device clock cycles."""
-        import pdb; pdb.set_trace()
         return self.scope.code.soc.us2cycles(
             us=self.val * 1e6,
             gen_ch=gen_ch,

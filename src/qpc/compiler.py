@@ -53,12 +53,19 @@ class FakeSoC:
     def __init__(self, *args, **kwargs):
         self.tproc = FakeTProc()
 
-    def us2cycles(self, x):
+    def us2cycles(self, us, gen_ch, ro_ch):
         # assume clock = 1 GHz
-        return round(1000 * x)
+        return round(1000 * us)
 
-    def freq2reg(self, x):
-        return round(x)
+    def cycles2us(self, cycles, gen_ch, ro_ch):
+        # assume clock = 1 GHz
+        return cycles / 1e9
+
+    def freq2reg(self, f, gen_ch, ro_ch):
+        return round(f)
+
+    def reg2freq(self, r, gen_ch):
+        return r
 
 class QPC(AbsQickProgram):
     """Runs a QICK program for tprocv2."""
