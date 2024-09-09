@@ -260,7 +260,7 @@ class QickConstType(QickBaseType, ABC):
                 'are incompatible.')
 
     def _gen_ro_ch(self) -> tuple[Optional[int], Optional[int]]:
-        """TODO"""
+        """Get the generator and readout firmware channel numbers."""
         gen_ch = self.qick_type().gen_ch
         if isinstance(gen_ch, QickIO):
             if self.scope.code.iomap is None:
@@ -453,9 +453,7 @@ class QickVarType(QickBaseType):
             raise TypeError('Cannot add these QickVarType because their '
                 'types are not compatible.')
 
-        # TODO
-        # return QickExpression(left=self, operator='+', right=other).simplify()
-        return QickExpression(left=self, operator='+', right=other)
+        return QickExpression(left=self, operator='+', right=other).simplify()
 
     def __radd__(self, other) -> QickExpression:
         return self.__add__(other)
@@ -467,13 +465,9 @@ class QickVarType(QickBaseType):
 
         # swap the orientation if called from __rsub__
         if swap:
-            # TODO
-            # return QickExpression(left=other, operator='-', right=self).simplify()
-            return QickExpression(left=other, operator='-', right=self)
+            return QickExpression(left=other, operator='-', right=self).simplify()
         else:
-            # TODO
-            # return QickExpression(left=self, operator='-', right=other).simplify()
-            return QickExpression(left=self, operator='-', right=other)
+            return QickExpression(left=self, operator='-', right=other).simplify()
 
     def __rsub__(self, other) -> QickExpression:
         return self.__add__(other, swap=True)
@@ -609,6 +603,14 @@ class QickSweptReg(QickReg):
 
         """
         super().__init__(*args, **kwargs)
+        
+        if not start.typecastable(stop):
+            raise ValueError('start and stop have different type.')
+        if not start.typecastable(step):
+            raise ValueError('start and step have different type.')
+
+        self.typecast(start)
+
         self.start = start
         self.stop = stop
         self.step = step
@@ -731,13 +733,13 @@ class QickExpression(QickVarType):
             raise RuntimeError('Unknown operator.')
 
     @staticmethod
-    def _from_sympy(exp: sympy.Expr, regs: Dict, qick_type: QickBaseType):
+    def _from_sympy(exp: sympy.Expr, regs: Dict, qick_type: QickType):
         """Create a QickExpression from a sympy expression.
 
         Args:
             regs: Dict mapping register _key() to register objects utilized
                 during the conversion
-            qick_type: Specific type of QickConstType objects in the original
+            qick_type: QickType of objects in the original
                 QickExpression.
 
         """
@@ -781,9 +783,9 @@ class QickExpression(QickVarType):
         elif isinstance(exp, sympy.core.symbol.Symbol):
             return regs[str(exp)]
         elif isinstance(exp, sympy.core.numbers.Integer):
-            return int(exp)
+            return qick_type.type_class(val=int(exp))
         elif isinstance(exp, sympy.core.numbers.Float):
-            return qick_type(val=float(exp))
+            return qick_type.type_class(val=float(exp))
         else:
             raise RuntimeError('Unrecognized expression type in sympy conversion.')
 
@@ -1086,10 +1088,17 @@ class QickCode(QickObject):
         generator config settings.
 
         Args:
-            outsel: TODO
-            mode:
-            stdysel:
-            phrst:
+            outsel: 'dds' to output a sine wave, 'input' to output
+                the value stored in waveform memory, 'product' to output
+                the product of 'dds' and 'input', and 'zero' to output 0.
+            mode: 'oneshot' to play the pulse normally, 'periodic' to play
+                the pulse, then repeat it until another pulse is played
+                on this channel.
+            stdysel: 'last' to continue playing the last sample of the pulse
+                when the pulse finishes, 'zero' to play 0 after the pulse
+                finishes.
+            phrst: 1 to reset the phase, 0 to retain the phase from the
+                free-running DDS counter.
 
         """
         outsel_reg = {'product': 0, 'dds': 1, 'input': 2, 'zero': 3}[outsel]

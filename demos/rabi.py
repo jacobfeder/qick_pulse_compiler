@@ -112,7 +112,7 @@ if __name__ == '__main__':
                 length=0.9e-6,
                 name='readout'
             ),
-            soccfg=qpc.soccfg,
+            soc=qpc.soc,
         )
 
         qpc.run(code)
