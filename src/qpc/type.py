@@ -12,6 +12,7 @@ from numbers import Number
 from types import MethodType
 from typing import Optional, Union, Type
 
+import numpy as np
 from qick import QickConfig
 import sympy
 
@@ -40,11 +41,16 @@ class QickScope:
 
     def __enter__(self):
         if len(qpc_scope):
+            # inherit soc from parent scope
             parent_soc = qpc_scope[-1].code.soc
             this_soc = self.code.soc
             if this_soc is None:
-                # inherit soc from parent scope
                 self.code.soc = parent_soc
+            # inherit iomap from parent scope
+            parent_iomap = qpc_scope[-1].code.iomap
+            this_iomap = self.code.iomap
+            if this_iomap is None:
+                self.code.iomap = parent_iomap
 
         qpc_scope.append(self)
         return self
@@ -614,6 +620,18 @@ class QickSweptReg(QickReg):
         self.start = start
         self.stop = stop
         self.step = step
+
+    def actual(self):
+        """TODO"""
+        start_cyc = self.start.clocks()
+        stop_cyc = self.stop.clocks()
+        step_cyc = self.step.clocks()
+
+        gen_ch, ro_ch = self.start._gen_ro_ch()
+        # length of one cycle in SI units
+        one_cycle = self.start._actual(cycles=1, gen_ch=gen_ch, ro_ch=ro_ch)
+
+        return one_cycle * np.arange(start_cyc, stop_cyc, step_cyc)
 
 class QickExpression(QickVarType):
     """Represents a mathematical expression containing QickBaseType."""

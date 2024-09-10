@@ -38,12 +38,6 @@ from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
 
-# maximum immediate value in the tproc
-MAX_IMM = 2**23 - 1
-
-# maximum register number
-MAX_REG = 15
-
 # dummy classes to simulate the soc object
 class FakeTProc:
     def __getattr__(self, attr):

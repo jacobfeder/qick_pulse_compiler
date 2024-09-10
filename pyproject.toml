@@ -14,6 +14,7 @@ packages = [{include = "qpc", from = "src"}]
 [tool.poetry.dependencies]
 # for now we must use python 3.10 because pyro4 doesn't support 3.11
 python = "~3.10"
+numpy = "*"
 qick = { git = "https://github.com/awsch/qick-spin.git"}
 pyro4 = "*"
 
