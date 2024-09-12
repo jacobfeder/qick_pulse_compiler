@@ -20,7 +20,7 @@ Pyro4.config.SERIALIZER = 'pickle'
 Pyro4.config.PICKLE_PROTOCOL_VERSION=4
 import qick
 from qick import QickConfig
-from qick.qick_asm import AbsQickProgram
+from qick.asm_v2 import QickProgramV2
 try:
     from qick import QickSoc
 except Exception:
@@ -32,8 +32,8 @@ else:
 from qick.tprocv2_assembler import Assembler
 
 from qpc.type import QickType, QickConstType, QickInt, QickLabel, QickTime
-from qpc.type import QickFreq, QickReg, QickExpression, QickAssignment
-from qpc.type import QickScope, QickCode
+from qpc.type import QickFreq, QickPhase, QickReg, QickExpression
+from qpc.type import QickAssignment, QickScope, QickCode
 from qpc.io import QickIO, QickIODevice
 
 _logger = logging.getLogger(__name__)
@@ -61,7 +61,13 @@ class FakeSoC:
     def reg2freq(self, r, gen_ch):
         return r
 
-class QPC(AbsQickProgram):
+    def deg2reg(self, deg, gen_ch, ro_ch):
+        return round(f)
+
+    def reg2deg(self, r, gen_ch):
+        return r
+
+class QPC(QickProgramV2):
     """Runs a QICK program for tprocv2."""
     def __init__(self,
         iomap: QickIOMap,
@@ -114,7 +120,7 @@ class QPC(AbsQickProgram):
     def __exit__(self, *args):
         self.stop()
 
-    def _compile_assignment(
+    def _qpc_compile_assignment(
             self,
             asn: QickAssignment,
         ) -> str:
@@ -131,7 +137,7 @@ class QPC(AbsQickProgram):
 
         return asm
 
-    def _compile_exp(
+    def _qpc_compile_exp(
             self,
             exp: QickExpression,
             regno: int
@@ -167,7 +173,7 @@ class QPC(AbsQickProgram):
             right = exp.right
 
         if isinstance(left, QickExpression):
-            left_pre_asm, left_exp_asm = self._compile_exp(exp=left, regno=regno + 1)
+            left_pre_asm, left_exp_asm = self._qpc_compile_exp(exp=left, regno=regno + 1)
             pre_asm += left_pre_asm
             pre_asm += f'REG_WR r{regno} op -op({left_exp_asm})\n'
             exp_asm += f'r{regno} '
@@ -180,7 +186,7 @@ class QPC(AbsQickProgram):
         exp_asm += exp.operator
 
         if isinstance(right, QickExpression):
-            right_pre_asm, right_exp_asm = self._compile_exp(exp=right, regno=regno + 1)
+            right_pre_asm, right_exp_asm = self._qpc_compile_exp(exp=right, regno=regno + 1)
             pre_asm += right_pre_asm
             pre_asm += f'REG_WR r{regno} op -op({right_exp_asm})\n'
             exp_asm += f' r{regno}'
@@ -191,7 +197,7 @@ class QPC(AbsQickProgram):
 
         return pre_asm, exp_asm
 
-    def _compile(self, code: QickCode, regno: int, labelno: int):
+    def _qpc_compile(self, code: QickCode, regno: int, labelno: int):
         """Compile the assembly code. All special *key* in the assembly code
         will be replaced by their firmware-specific values.
 
@@ -217,7 +223,7 @@ class QPC(AbsQickProgram):
         with QickScope(code=code):
             for key, qick_obj in code.kvp.copy().items():
                 if isinstance(qick_obj, QickAssignment):
-                    assignment_asm = self._compile_assignment(asn=qick_obj)
+                    assignment_asm = self._qpc_compile_assignment(asn=qick_obj)
                     asm = asm.replace(key, assignment_asm)
 
         # calculate how many registers will be allocated
@@ -229,7 +235,7 @@ class QPC(AbsQickProgram):
         # recursively compile the rest of the QickCode objects
         for key, qick_obj in code.kvp.copy().items():
             if isinstance(qick_obj, QickCode):
-                sub_asm, labelno = self._compile(code=qick_obj, regno=regno + nregs, labelno=labelno)
+                sub_asm, labelno = self._qpc_compile(code=qick_obj, regno=regno + nregs, labelno=labelno)
                 asm = asm.replace(key, sub_asm)
 
         # compile the QickExpression
@@ -237,13 +243,15 @@ class QPC(AbsQickProgram):
             # make a copy since we'll be adding new elements
             for key, qick_obj in code.kvp.copy().items():
                 if isinstance(qick_obj, QickExpression):
-                    pre_asm, exp_asm = self._compile_exp(exp=qick_obj, regno=regno + nregs)
+                    pre_asm, exp_asm = self._qpc_compile_exp(exp=qick_obj, regno=regno + nregs)
                     asm = asm.replace(key + 'pre_asm', pre_asm)
                     asm = asm.replace(key + 'exp_asm', exp_asm)
 
         # compile the rest of the non-code objects
         for key, qick_obj in code.kvp.items():
-            if isinstance(qick_obj, QickTime) or isinstance(qick_obj, QickFreq):
+            if isinstance(qick_obj, QickTime) or \
+                isinstance(qick_obj, QickFreq) or \
+                isinstance(qick_obj, QickPhase):
                 asm = asm.replace(key, str(qick_obj.clocks()))
             elif isinstance(qick_obj, QickInt):
                 asm = asm.replace(key,str(qick_obj.val))
@@ -270,7 +278,7 @@ class QPC(AbsQickProgram):
 
         return asm, labelno
 
-    def compile(self, code: QickCode, start_reg: int = 0):
+    def qpc_compile(self, code: QickCode, start_reg: int = 0):
         """Compile a QickCode object into assembly code compatible with tprocv2.
 
         Args:
@@ -297,7 +305,7 @@ class QPC(AbsQickProgram):
             wrapper_code.asm += 'JUMP HERE\n'
 
             # compile!
-            asm, _ = self._compile(
+            asm, _ = self._qpc_compile(
                 code=wrapper_code,
                 regno=start_reg,
                 labelno=0
@@ -323,7 +331,7 @@ class QPC(AbsQickProgram):
 
         """
         if code is not None:
-            asm = self.compile(code=code, start_reg=start_reg)
+            asm = self.qpc_compile(code=code, start_reg=start_reg)
             self.load(asm=asm)
 
         # start the program
@@ -362,7 +370,7 @@ class QPC(AbsQickProgram):
 
             # write 0 waveform into all WPORTs
             for p in self.iomap.dac_ports():
-                off_code.rf_pulse(ch=p, length=1e-6, freq=100e6, amp=0, time=0)
+                off_code.rf_pulse(ch=p, time=0, length=1e-6, amp=0, freq=100e6, phase=0)
 
             # disable all DPORTs
             off_code.asm += '// write 0 into all DPORTs\n'

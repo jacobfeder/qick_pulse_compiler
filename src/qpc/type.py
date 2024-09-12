@@ -438,6 +438,27 @@ class QickFreq(QickConstType):
             gen_ch=gen_ch,
         ) * 1e6
 
+class QickPhase(QickConstType):
+    """Represents a phase in degrees."""
+    def _clocks(self, gen_ch: Optional[int], ro_ch: Optional[int]):
+        """Convert to an integer number of device clock cycles."""
+        if gen_ch is None:
+            raise RuntimeError('QickPhase was never associated with a '
+                'generator channel.')
+        return self.scope.code.soc.deg2reg(
+            deg=self.val,
+            gen_ch=gen_ch,
+            ro_ch=ro_ch
+        )
+
+    def _actual(self, cycles: int, gen_ch: Optional[int], ro_ch: Optional[int]):
+        """Convert to the actual value (in degrees) after rounding to the
+        nearest clock cycle."""
+        return self.scope.code.soc.reg2deg(
+            r=cycles,
+            gen_ch=gen_ch,
+        )
+
 class QickVarType(QickBaseType):
     """Base class for variable types."""
     def __init__(self, *args, **kwargs):
@@ -622,7 +643,7 @@ class QickSweptReg(QickReg):
         self.step = step
 
     def actual(self):
-        """TODO"""
+        """Return a numpy array of the actual points that will be swept over."""
         start_cyc = self.start.clocks()
         stop_cyc = self.stop.clocks()
         step_cyc = self.step.clocks()
@@ -1129,27 +1150,30 @@ class QickCode(QickObject):
     def rf_pulse(
             self,
             ch: Union[QickIODevice, QickIO, int],
-            length: Optional[Union[Number, QickTime, QickVarType]],
-            freq: Optional[Union[Number, QickFreq, QickVarType]],
-            amp: Optional[int, QickInt],
             time: Optional[Union[Number, QickTime, QickVarType]],
+            length: Optional[Union[Number, QickTime, QickVarType]],
+            amp: Optional[int, QickInt, QickVarType],
+            freq: Optional[Union[Number, QickFreq, QickVarType]],
+            phase: Optional[Union[Number, QickPhase, QickVarType]],
             **conf,
         ):
         """Generate an RF pulse.
 
         Args:
             ch: QickIODevice, QickIO, or port to output an RF pulse.
-            length: Length of the RF pulse. Pass a time (s), QickTime,
-                QickReg, QickExpression. Set to None to use the value
-                currently in w_length.
-            freq: RF frequency of the pulse. Pass a frequency (s), QickFreq,
-                QickReg, QickExpression. Set to None to use the value
-                currently in w_freq.
-            amp: RF amplitude. Pass an integer (-32,768 to 32,767).
-                Set to None to use the value currently stored in w_gain.
-            time: Time at which to play the pulse. Pass a time (s), QickTime,
-                QickReg, QickExpression. Set to None to use the value
-                currently in out_usr_time.
+            time: Time at which to play the pulse. Pass a time (s) or other
+                Qick type. Set to None to use the value currently in
+                out_usr_time.
+            length: Length of the RF pulse. Pass a time (s) or other Qick
+                type. Set to None to use the value currently in w_length.
+            amp: RF amplitude. Pass an integer (-32,768 to 32,767) or other
+                Qick type. Set to None to use the value currently stored in
+                w_gain.
+            freq: RF frequency of the pulse. Pass a frequency (s) or other
+                QickFreq, Qick type. Set to None to use the value currently
+                in w_freq.
+            phase: Phase of the RF pulse. Pass a phase (deg) or other Qick
+                type. Set to None to use the value currently in w_phase.
             conf: Keyword arguments to pass to sig_gen_conf(). Otherwise the
                 default values will be used.
 
@@ -1177,6 +1201,13 @@ class QickCode(QickObject):
                 w_length = QickReg(reg='w_length')
                 w_length.assign(length)
 
+            if amp is not None:
+                if isinstance(amp, int):
+                    amp = QickInt(amp)
+                # set the amplitude of the pulse
+                w_gain = QickReg(reg='w_gain')
+                w_gain.assign(amp)
+
             if freq is not None:
                 if isinstance(freq, Number):
                     freq = QickFreq(freq, gen_ch=ch)
@@ -1187,12 +1218,15 @@ class QickCode(QickObject):
                 w_freq = QickReg(reg='w_freq')
                 w_freq.assign(freq)
 
-            if amp is not None:
-                if isinstance(amp, int):
-                    amp = QickInt(amp)
-                # set the amplitude of the pulse
-                w_gain = QickReg(reg='w_gain')
-                w_gain.assign(amp)
+            if phase is not None:
+                if isinstance(phase, Number):
+                    phase = QickPhase(phase, gen_ch=ch)
+                elif isinstance(phase, QickPhase):
+                    if phase.gen_ch is None:
+                        phase.gen_ch = ch
+                # set the phase of the pulse
+                w_phase = QickReg(reg='w_phase')
+                w_phase.assign(phase)
 
             # set the configuration settings of the pulse
             w_conf = QickReg(reg='w_conf')

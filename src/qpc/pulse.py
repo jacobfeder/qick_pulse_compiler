@@ -2,9 +2,11 @@ from typing import Union
 from typing import Optional
 from numbers import Number
 
+import numpy as np
+
 from qpc.io import QickIO, QickIODevice
-from qpc.type import QickType, QickVarType, QickFreq, QickTime, QickReg
-from qpc.type import QickCode
+from qpc.type import QickType, QickVarType, QickFreq, QickPhase, QickTime
+from qpc.type import QickReg, QickCode
 
 class Delay(QickCode):
     def __init__(self, length: QickType, *args, **kwargs):
@@ -72,8 +74,9 @@ class RFPulse(QickCode):
         self,
         ch: Union[QickIODevice, QickIO, int],
         length: Optional[Union[Number, QickTime, QickVarType]],
-        freq: Optional[Union[Number, QickFreq, QickVarType]],
         amp: Optional[int],
+        freq: Optional[Union[Number, QickFreq, QickVarType]],
+        phase: Optional[Union[Number, QickPhase, QickVarType]] = 0,
         time: Optional[Union[Number, QickTime, QickVarType]] = 0,
         *args,
         **kwargs,
@@ -82,17 +85,19 @@ class RFPulse(QickCode):
 
         Args:
             ch: QickIODevice, QickIO, or port to output an RF pulse.
-            length: Length of the RF pulse. Pass a time (s), QickLength,
-                QickReg, QickExpression. Set to None to use the value
-                currently in w_length.
-            freq: RF frequency of the pulse. Pass a frequency (s), QickFreq,
-                QickReg, QickExpression. Set to None to use the value
-                currently in w_freq.
-            amp: RF amplitude. Pass an integer (-32,768 to 32,767).
-                Set to None to use the value currently stored in w_gain.
-            time: Time at which to play the pulse. Pass a time (s), QickTime,
-                QickReg, QickExpression. Set to None to use the value
-                currently in out_usr_time.
+            length: Length of the RF pulse. Pass a time (s) or other Qick
+                type. Set to None to use the value currently in w_length.
+            amp: RF amplitude. Pass an integer (-32,768 to 32,767) or other
+                Qick type. Set to None to use the value currently stored in
+                w_gain.
+            freq: RF frequency of the pulse. Pass a frequency (s) or other
+                QickFreq, Qick type. Set to None to use the value currently
+                in w_freq.
+            phase: Phase of the RF pulse. Pass a phase (deg) or other Qick
+                type. Set to None to use the value currently in w_phase.
+            time: Time at which to play the pulse. Pass a time (s) or other
+                Qick type. Set to None to use the value currently in
+                out_usr_time.
 
         """
         if 'name' not in kwargs:
@@ -101,14 +106,14 @@ class RFPulse(QickCode):
 
         self.rf_pulse(
             ch=ch,
-            length=length,
-            freq=freq,
-            amp=amp,
             time=time,
+            length=length,
+            amp=amp,
+            freq=freq,
+            phase=phase,
         )
 
 # # prototype code for mixing the RF with a user-defined envelope
-
 # class RFEnvelope(QickCode):
 #     def __init__(
 #         self,
@@ -124,36 +129,32 @@ class RFPulse(QickCode):
 #             data:
 
 #         """
-#         data_2d = np.zeros((length(data), 2), dtype=np.int16)
-#         data_2d[:, 0] = np.round(data)
-#         self.soc.load_pulse_data(
-#             ch=self.dac_port_mapping[dac_ch],
-#             data=make2d(wave),
-#             addr=0
-#         )
+#         if 'name' not in kwargs:
+#             kwargs['name'] = 'rf pulse'
+#         # TODO length
+#         super().__init__(*args, **kwargs)
 
-#         self.rf_pulse(ch=ch, time=0, length=length, freq=freq, amp=amp)
+#         # TODO need to put these in the compiler
+#         ramp_len=1.0
+#         self.add_gauss(ch=0, name='gauss', sigma=ramp_len/10, length=ramp_len, even_length=True)
+#         self.add_cosine(ch=0, name='cos', length=ramp_len)
+#         self.add_pulse(ch=0, name='gauss1', style='arb', envelope='gauss', freq=100, phase=0, gain=1.0)
+#         self.add_pulse(ch=0, name='cos1', style='arb', envelope='cos', freq=100, phase=0, gain=1.0)
+#         self.config_all(self.soc)
 
-# def sawtooth(length=16, maxv=30000, repeat=1):
-#     """
-#     Create a numpy array containing a sawtooth function
-
-#     :param length: Length of array
-#     :type length: int
-#     :param maxv: Maximum amplitude of triangle function
-#     :type maxv: float
-#     :param n_maxv: Maximum amplitude of triangle function
-#     :type maxv: float
-    
-#     :return: Numpy array containing a triangle function
-#     :rtype: array
-#     """
-
-#     ramp = np.linspace(0, maxv, length)
-#     y = []
-#     for ind in range(repeat):
-#         y = np.append(y, ramp)
-#     return y
+#         # data_2d = np.zeros((length(data), 2), dtype=np.int16)
+#         # data_2d[:, 0] = np.round(data)
+#         # self.soc.load_pulse_data(
+#         #     ch=self.dac_port_mapping[dac_ch],
+#         #     data=data_2d,
+#         #     addr=address
+#         # )
+#         # ramp_len=1.0
+#         # qpc.add_gauss(ch=0, name="ramp", sigma=ramp_len/10, length=ramp_len, even_length=True)
+#         # qpc.add_pulse(ch=0, name='test', style='arb', envelope='ramp', freq=100, phase=0, gain=1.0)
+#         # qpc.compile()
+#         self.rf_test(ch=ch)
+#         # self.rf_pulse(ch=ch, time=0, length=length, freq=freq, amp=amp)
 
 # def make2d(data):
 #     data_2d = np.zeros((length(data), 2), dtype=np.int16)
