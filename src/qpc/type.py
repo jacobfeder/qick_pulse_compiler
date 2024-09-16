@@ -987,10 +987,11 @@ class QickCode(QickObject):
     def inc_ref(self):
         """Increment the reference by the length of this code block."""
         with QickScope(code=self):
-            # the amount to inc_ref by
             ref_reg = QickReg()
             ref_reg.assign(self.length)
             self.asm += f'TIME inc_ref {ref_reg}\n'
+            # reset the length
+            self.length = QickTime(0)
 
     def update_key(self, old_key: str, new_obj: QickBaseType):
         """Update the given key in the assembly code and key-value pair
@@ -1292,6 +1293,7 @@ class QickCode(QickObject):
                     isinstance(code.length, QickConstType) and \
                     code.length.val > self.length.val:
                     self.length = code.length
+                    self.length.scopecast()
 
             self.asm += code.asm
             self.merge_kvp(code.kvp)

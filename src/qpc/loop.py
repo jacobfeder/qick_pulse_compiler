@@ -3,7 +3,8 @@ from typing import Union
 from typing import List
 from numbers import Number
 
-from qpc.type import QickScope, QickLabel, QickVarType, QickInt, QickReg, QickSweptReg
+from qpc.type import QickScope, QickLabel, QickVarType, QickInt, QickTime
+from qpc.type import QickReg, QickSweptReg
 from qpc.type import QickCode
 
 class QickLoop(QickCode):
@@ -100,7 +101,7 @@ class QickSweep(QickCode):
         if 'name' not in kwargs:
             kwargs['name'] = 'sweep'
 
-        if inc_ref is False and self.soccfg is not None and isinstance(code.length, QickTime):
+        if inc_ref is False and code.soc is not None and isinstance(code.length, QickTime):
             # TODO calculate the length based on number of loop iterations
             super().__init__(*args, length=0, **kwargs)
         else:
