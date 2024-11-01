@@ -13,8 +13,10 @@ import logging
 from math import ceil, log10
 from numbers import Number
 from pathlib import Path
+import time
 from typing import Optional, Iterable, Dict, Any, Union
 
+import numpy as np
 import Pyro4
 Pyro4.config.SERIALIZER = 'pickle'
 Pyro4.config.PICKLE_PROTOCOL_VERSION=4
@@ -76,6 +78,7 @@ class QPC(QickProgramV2):
         soc_proxy: str = 'rfsoc',
         print_prog: bool = True,
         fake_soc: bool = False,
+        prog_done_flag_dmem_addr: int = 0,
         **soc_kwargs
         ):
         """
@@ -85,6 +88,8 @@ class QPC(QickProgramV2):
             ns_port: Pyro nameserver port for the RFSoC.
             soc_proxy: Pyro SoC object name.
             fake_soc: If True, simulate the SoC connection for testing purposes.
+            prog_done_flag_dmem_addr: DMEM address to use for the program
+                finished flag.
             soc_kwargs: SoC object keyword args.
 
         """
@@ -94,6 +99,7 @@ class QPC(QickProgramV2):
         self.soc_proxy = soc_proxy
         self.print_prog = print_prog
         self.fake_soc = fake_soc
+        self.prog_done_flag_dmem_addr = prog_done_flag_dmem_addr
         self.soc_kwargs = soc_kwargs
 
         if self.fake_soc:
@@ -278,7 +284,7 @@ class QPC(QickProgramV2):
 
         return asm, labelno
 
-    def qpc_compile(self, code: QickCode, start_reg: int = 0):
+    def qpc_compile(self, code: QickCode, start_reg: int = 0, flag: bool = True):
         """Compile a QickCode object into assembly code compatible with tprocv2.
 
         Args:
@@ -286,6 +292,8 @@ class QPC(QickProgramV2):
             start_reg: Lowest register number that will be used by the compiler.
                 All registers below this will be ignored and can be utilized by
                 the user for global variables.
+            flag: If True, set DMEM[prog_done_flag_dmem_addr] = 1 at the end of
+                the program to indicate that it finished.
 
         """
         wrapper_code = QickCode(name='program')
@@ -300,6 +308,12 @@ class QPC(QickProgramV2):
 
             # wrap the code
             wrapper_code.asm += str(code)
+
+            if flag:
+                # wait until the program is finished
+                wrapper_code.asm += 'WAIT time @0\n'
+                # set a flag to indicate the program finished
+                wrapper_code.asm += f'DMEM_WR [&{self.prog_done_flag_dmem_addr}] imm #1\n'
 
             # add an infinite loop to the end of the program
             wrapper_code.asm += 'JUMP HERE\n'
@@ -320,23 +334,23 @@ class QPC(QickProgramV2):
     def run(
         self,
         code: Optional[QickCode] = None,
-        start_reg: Optional[int] = 0
+        **kwargs
     ):
         """Run the currently loaded assembly program, or load and run a new one.
 
         Args:
             code: If None, the program that was last loaded with load() will be run.
                 Otherwise this code will be compiled, loaded, and then run.
-            start_reg: See compile().
+            kwargs: Keyword arguments to pass to qpc_compile().
 
         """
         if code is not None:
-            asm = self.qpc_compile(code=code, start_reg=start_reg)
+            asm = self.qpc_compile(code=code, **kwargs)
             self.load(asm=asm)
 
         # start the program
         self.soc.tproc.start()
-        _logger.debug('running rfsoc prog...')
+        _logger.info('running rfsoc prog...')
 
     def load(self, asm: str):
         """Load the program and configure the tproc.
@@ -349,7 +363,7 @@ class QPC(QickProgramV2):
             ndigits = ceil(log10(asm.count('\n')))
             for i, line in enumerate(asm.splitlines()):
                 # add line numbers
-                print(f'{i+1:0{str(ndigits)}}: {line}')
+                _logger.info(f'{i+1:0{str(ndigits)}}: {line}')
 
         # assemble program
         pmem, asm_bin = Assembler.str_asm2bin(asm)
@@ -357,8 +371,23 @@ class QPC(QickProgramV2):
         # stop any previously running program
         self.soc.tproc.reset()
 
+        # zero out the DMEM
+        buf = np.zeros((8, 8), dtype=np.uint32)
+        self.soc.tproc.load_mem(mem_sel=2, buff_in=buf, addr=0)
+
         # load the new program into memory
         self.soc.tproc.Load_PMEM(asm_bin)
+
+    def wait_done(self):
+        """Block until the program finished flag goes high."""
+        flag = 0
+        while flag == 0:
+            flag = self.soc.tproc.read_mem(
+                mem_sel=2,
+                addr=self.prog_done_flag_dmem_addr,
+                length=1
+            )[0][0]
+            time.sleep(0.01)
 
     def off_prog(self) -> QickCode:
         """A program that outputs 0's on all ports."""
@@ -382,5 +411,5 @@ class QPC(QickProgramV2):
 
     def stop(self):
         """Upload a program that outputs 0's on all ports."""
-        self.run(self.off_prog())
+        self.run(self.off_prog(), flag=False)
         self.soc.tproc.start()
