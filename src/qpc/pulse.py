@@ -22,24 +22,21 @@ class TrigConst(QickCode):
     def __init__(
         self,
         ch: Union[QickIODevice, QickIO, int],
+        state: bool,
         *args,
-        invert: bool = False,
         **kwargs
     ):
         """Set a digital trigger port high or low.
 
         Args:
             ch: Channel to turn on/off.
-            invert: If true, turn the channel off.
+            state: If true, turn the channel on, otherwise off.
 
         """
         if 'name' not in kwargs:
             kwargs['name'] = 'trig const'
         super().__init__(*args, **kwargs)
-        if invert:
-            self.trig(ch=ch, state=False, time=0)
-        else:
-            self.trig(ch=ch, state=True, time=0)
+        self.trig(ch=ch, state=state, time=0)
 
 class TrigPulse(QickCode):
     def __init__(
