@@ -350,7 +350,8 @@ class QPC(QickProgramV2):
 
         # start the program
         self.soc.tproc.start()
-        _logger.info('running rfsoc prog...')
+        if self.print_prog:
+            _logger.info('running rfsoc prog...')
 
     def load(self, asm: str):
         """Load the program and configure the tproc.
