@@ -14,6 +14,8 @@ class Delay(QickCode):
 
         Args:
             length: Length of the delay.
+            args: Additional arguments to pass to super init.
+            kwargs: Additional keyword arguments to pass to super init.
 
         """
         super().__init__(*args, length=length, **kwargs)
@@ -31,6 +33,8 @@ class TrigConst(QickCode):
         Args:
             ch: Channel to turn on/off.
             state: If true, turn the channel on, otherwise off.
+            args: Additional arguments to pass to super init.
+            kwargs: Additional keyword arguments to pass to super init.
 
         """
         if 'name' not in kwargs:
@@ -53,6 +57,8 @@ class TrigPulse(QickCode):
             ch: Channel to pulse.
             length: Length of the trigger pulse.
             invert: If true, turn the channel off, then on.
+            args: Additional arguments to pass to super init.
+            kwargs: Additional keyword arguments to pass to super init.
 
         """
         if 'name' not in kwargs:
@@ -75,6 +81,10 @@ class RFPulse(QickCode):
         freq: Optional[Union[Number, QickFreq, QickVarType]],
         phase: Optional[Union[Number, QickPhase, QickVarType]] = 0,
         time: Optional[Union[Number, QickTime, QickVarType]] = 0,
+        outsel: Optional[str] = None,
+        mode: Optional[str] = None,
+        stdysel: Optional[str] = None,
+        phrst: Optional[bool] = None,
         *args,
         **kwargs,
     ):
@@ -95,11 +105,27 @@ class RFPulse(QickCode):
             time: Time at which to play the pulse. Pass a time (s) or other
                 Qick type. Set to None to use the value currently in
                 out_usr_time.
+            outsel: See sig_gen_conf in type.py.
+            mode: See sig_gen_conf in type.py.
+            stdysel: See sig_gen_conf in type.py.
+            phrst: See sig_gen_conf in type.py.
+            args: Additional arguments to pass to super init.
+            kwargs: Additional keyword arguments to pass to super init.
 
         """
         if 'name' not in kwargs:
             kwargs['name'] = 'rf pulse'
         super().__init__(*args, length=length, **kwargs)
+
+        conf = {}
+        if outsel is not None:
+            conf['outsel'] = outsel
+        if mode is not None:
+            conf['mode'] = mode
+        if stdysel is not None:
+            conf['stdysel'] = stdysel
+        if phrst is not None:
+            conf['phrst'] = phrst
 
         self.rf_pulse(
             ch=ch,
@@ -108,6 +134,7 @@ class RFPulse(QickCode):
             amp=amp,
             freq=freq,
             phase=phase,
+            **conf
         )
 
 # # prototype code for mixing the RF with a user-defined envelope

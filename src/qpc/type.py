@@ -1122,7 +1122,7 @@ class QickCode(QickObject):
             outsel = 'dds',
             mode = 'oneshot',
             stdysel = 'zero',
-            phrst = 0
+            phrst = False
         ) -> int:
         """Return the firmware register value for the given signal
         generator config settings.
@@ -1137,13 +1137,17 @@ class QickCode(QickObject):
             stdysel: 'last' to continue playing the last sample of the pulse
                 when the pulse finishes, 'zero' to play 0 after the pulse
                 finishes.
-            phrst: 1 to reset the phase, 0 to retain the phase from the
+            phrst: True to reset the phase, False to retain the phase from the
                 free-running DDS counter.
 
         """
         outsel_reg = {'product': 0, 'dds': 1, 'input': 2, 'zero': 3}[outsel]
         mode_reg = {'oneshot': 0, 'periodic': 1}[mode]
         stdysel_reg = {'last': 0, 'zero': 1}[stdysel]
+        if phrst:
+            phrst = 1
+        else:
+            phrst = 0
 
         mc = phrst * 0b10000 + stdysel_reg * 0b01000 + mode_reg * 0b00100 + outsel_reg
         return QickInt(mc)

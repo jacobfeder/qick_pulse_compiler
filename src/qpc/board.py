@@ -23,6 +23,7 @@ qick_spin_4x2 = QickIOMap(
         'PMOD1_5': TriggerPort(port=15),
         'PMOD1_6': TriggerPort(port=16),
         'PMOD1_7': TriggerPort(port=17),
+        'TT0': TriggerPort(port=20),
     },
     data_ports_mapping = {
         'NA0': DataPort(port=0, bit=0),

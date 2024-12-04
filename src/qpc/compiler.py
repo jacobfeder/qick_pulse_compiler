@@ -132,6 +132,10 @@ class QPC(QickProgramV2):
         ) -> str:
         """Create the assembly code that evaluates a QickAssignment."""
 
+        # TODO check if w_length is longer than 16 bits
+        # if (w_length > 65535):
+        #     raise ValueError('Waveform longer than 16 bits', w_length)
+
         if isinstance(asn.rhs, int) or isinstance(asn.rhs, QickConstType):
             asm = f'REG_WR {asn.reg} imm #{asn.rhs}\n'
         elif isinstance(asn.rhs, QickReg):
