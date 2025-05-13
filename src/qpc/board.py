@@ -32,7 +32,6 @@ qick_spin_4x2 = QickIOMap(
         'NA3': DataPort(port=3, bit=0),
     },
     dac_ports_mapping = {
-        'DAC_A': DACPort(port=0),
         'DAC_B': DACPort(port=1),
     },
     adc_ports_mapping = {
