@@ -64,7 +64,7 @@ class FakeSoC:
         return r
 
     def deg2reg(self, deg, gen_ch, ro_ch):
-        return round(f)
+        return round(deg)
 
     def reg2deg(self, r, gen_ch):
         return r
